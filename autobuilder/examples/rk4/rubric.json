@@ -1,0 +1,43 @@
+{
+  "submission_filename": "HW7.py",
+  "timeout": 10,
+  "requirements": ["numpy"],
+  "test_suite": [
+    {
+      "test_name": "B1",
+      "type": "function",
+      "function_name": "rk4_step",
+      "inputs": [[-1, 4], 0.1],
+      "description": "rk4_step([-1, 4], 0.1)",
+      "hint_wrong_size": "rk4_step should return a length-2 array/list [R_next, J_next].",
+      "hint_tolerance": "Check your RK4 weighted average of the four slopes, and the sign of each entry in A.",
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "score": 3
+    },
+    {
+      "test_name": "B2",
+      "type": "function",
+      "function_name": "rk4_step",
+      "inputs": [[2, -3], 0.05],
+      "description": "rk4_step([2, -3], 0.05)",
+      "hint_wrong_size": "rk4_step should return a length-2 array/list [R_next, J_next].",
+      "hint_tolerance": "Check your RK4 weighted average of the four slopes, and the sign of each entry in A.",
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "score": 3
+    },
+    {
+      "test_name": "B3",
+      "type": "function",
+      "function_name": "rk4_step",
+      "inputs": [[0, 0], 0.2],
+      "description": "rk4_step([0, 0], 0.2) -- equilibrium should stay put",
+      "hint_wrong_size": "rk4_step should return a length-2 array/list [R_next, J_next].",
+      "hint_tolerance": "At the origin both R'(t) and J'(t) are zero, so the step should return [0, 0].",
+      "rtol": 1e-6,
+      "atol": 1e-9,
+      "score": 2
+    }
+  ]
+}

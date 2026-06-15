@@ -1,3 +1,8 @@
 #!/usr/bin/env bash
+set -e
+
+cp -r /autograder/submission/* /autograder/source/
 cd /autograder/source
-python3.10 run_grader.py
+
+python3.10 prepare_submission.py
+python3.10 run_tests.py

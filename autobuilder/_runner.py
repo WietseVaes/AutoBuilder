@@ -1,18 +1,33 @@
 """
-Runs in a fresh subprocess. Executes a student's Python script and pickles
-whatever subset of its global namespace the rubric cares about, plus any
-error encountered. This is the unit of isolation: one student script run,
-captured once, with everything downstream working off the captured dict.
+Runs in a fresh subprocess. Executes a script once, then for each requested
+test either:
+  - "variable": pulls a named variable out of the resulting global namespace
+  - "function": calls a named function with given inputs and captures its
+    return value (optionally indexing into the result for multi-output
+    functions via "output_index")
+
+Pickles a result dict:
+    {
+        "_error": str | None,            # traceback if the script itself crashed
+        "values": {test_name: value},    # successfully captured values
+        "_missing": [test_name, ...],    # variable/function never defined
+        "_call_errors": {test_name: tb}, # function raised when called
+    }
+
+This is the unit of isolation: one script execution, captured once, with
+everything downstream working off this dict.
 """
 import sys
 import json
 import pickle
 import traceback
 
+from inputs import convert_inputs as _convert_inputs
+
 
 def main():
-    script_path, output_path, varnames_json = sys.argv[1], sys.argv[2], sys.argv[3]
-    varnames = json.loads(varnames_json)
+    script_path, output_path, tests_json = sys.argv[1], sys.argv[2], sys.argv[3]
+    tests = json.loads(tests_json)
 
     ns = {}
     error = None
@@ -24,12 +39,31 @@ def main():
     except Exception:
         error = traceback.format_exc()
 
-    result = {"_error": error, "values": {}, "_missing": []}
-    for name in varnames:
-        if name in ns:
-            result["values"][name] = ns[name]
-        else:
-            result["_missing"].append(name)
+    result = {"_error": error, "values": {}, "_missing": [], "_call_errors": {}}
+
+    for t in tests:
+        name = t["name"]
+
+        if t["type"] == "variable":
+            varname = t["variable_name"]
+            if varname in ns:
+                result["values"][name] = ns[varname]
+            else:
+                result["_missing"].append(name)
+
+        elif t["type"] == "function":
+            fname = t["function_name"]
+            if fname not in ns or not callable(ns[fname]):
+                result["_missing"].append(name)
+                continue
+            inputs = _convert_inputs(t.get("inputs", []))
+            try:
+                output = ns[fname](*inputs)
+                if t.get("output_index") is not None:
+                    output = output[t["output_index"]]
+                result["values"][name] = output
+            except Exception:
+                result["_call_errors"][name] = traceback.format_exc()
 
     with open(output_path, "wb") as f:
         pickle.dump(result, f)

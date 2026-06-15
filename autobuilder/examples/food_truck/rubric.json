@@ -1,0 +1,18 @@
+{
+  "submission_filename": "food_truck.py",
+  "requirements": ["numpy"],
+  "test_suite": [
+    {
+      "test_name": "FT1",
+      "type": "variable",
+      "variable_name": "final_scores",
+      "description": "final_scores has the correct shape and values",
+      "expected": [7.93, 3.37, 4.33, 3.02],
+      "rtol": 0,
+      "atol": 0.01,
+      "score": 4,
+      "hint_wrong_size": "final_scores should be a NumPy array of shape (4,) -- one score per food truck.",
+      "hint_tolerance": "Check your scoring formula -- review how each component (taste, price, wait time, etc.) is weighted."
+    }
+  ]
+}
