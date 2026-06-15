@@ -2,8 +2,7 @@
 Builds a Gradescope-ready PyUnit autograder zip from a rubric.json + a
 correct solution script.
 
-    autobuilder build RUBRIC SOLUTION --output autograder.zip \
-        [--submission-filename HW6.py] [--timeout 10]
+    autobuilder build RUBRIC SOLUTION --output autograder.zip [--timeout 10]
 
 Output layout (matches the gradescope-utils PyUnit convention):
 
@@ -28,6 +27,10 @@ imports the relevant name from `student_submission` and compares it against
 either `solution.<name>` / `solution.<func>(*inputs)` or a hardcoded
 "expected" value.
 
+Students can submit any .py file under any name -- prepare_submission.py
+copies (or, if multiple .py files are submitted, concatenates) whatever
+was uploaded into student_submission.py before tests run.
+
 Before generating anything, the solution is validated (run once, in an
 isolated subprocess) to make sure it actually defines everything the rubric
 needs and doesn't crash -- this catches rubric/solution mismatches at build
@@ -47,19 +50,14 @@ PACKAGE_DIR = os.path.dirname(__file__)
 TEMPLATES_DIR = os.path.join(PACKAGE_DIR, "templates")
 
 # Files from this package vendored into the zip for the generated tests to import.
-VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py"]
+VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py"]
 
-DEFAULT_SUBMISSION_FILENAME = "submission.py"
 DEFAULT_TIMEOUT = 10
 
 
-def build(rubric_path, solution_path, output_path, submission_filename=None, timeout=None):
+def build(rubric_path, solution_path, output_path, timeout=None):
     with open(rubric_path) as f:
         config = json.load(f)
-
-    if submission_filename:
-        config["submission_filename"] = submission_filename
-    config.setdefault("submission_filename", DEFAULT_SUBMISSION_FILENAME)
 
     if timeout is not None:
         config["timeout"] = timeout
@@ -129,11 +127,10 @@ def main(argv=None):
     parser.add_argument("rubric", help="Path to rubric.json")
     parser.add_argument("solution", help="Path to your correct solution .py script")
     parser.add_argument("--output", default="autograder.zip", help="Output zip path")
-    parser.add_argument("--submission-filename", help="Expected name of the student's submission file")
     parser.add_argument("--timeout", type=float, help="Per-run timeout (seconds) for validating the solution")
     args = parser.parse_args(argv)
 
-    out = build(args.rubric, args.solution, args.output, args.submission_filename, args.timeout)
+    out = build(args.rubric, args.solution, args.output, args.timeout)
     print(f"Wrote {out}")
 
 

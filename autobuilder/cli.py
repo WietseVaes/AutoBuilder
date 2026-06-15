@@ -1,7 +1,7 @@
 """
 Command-line entrypoint, installed as `autobuilder`.
 
-    autobuilder build RUBRIC SOLUTION --output autograder.zip [--submission-filename HW6.py] [--timeout 10]
+    autobuilder build RUBRIC SOLUTION --output autograder.zip [--timeout 10]
     autobuilder grade RUBRIC SOLUTION SUBMISSION [--timeout 10]
 
 `build` produces a Gradescope-ready PyUnit autograder zip (see build.py for
@@ -27,11 +27,11 @@ from .build import build as build_zip
 from .codegen import generate_test_file
 
 PACKAGE_DIR = os.path.dirname(__file__)
-VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py"]
+VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py"]
 
 
 def cmd_build(args):
-    out = build_zip(args.rubric, args.solution, args.output, args.submission_filename, args.timeout)
+    out = build_zip(args.rubric, args.solution, args.output, args.timeout)
     print(f"Wrote {out}")
     return 0
 
@@ -59,12 +59,8 @@ def cmd_grade(args):
             module = importlib.import_module("test_rubric")
             suite = unittest.TestLoader().loadTestsFromModule(module)
 
-            from autobuilder.attempts import make_post_processor
-            post_processor = make_post_processor(config, {}, module.TestRubric.ATTEMPT_STATUS)
-
             stream = io.StringIO()
-            JSONTestRunner(visibility="visible", stream=stream, buffer=False,
-                            post_processor=post_processor).run(suite)
+            JSONTestRunner(visibility="visible", stream=stream, buffer=False).run(suite)
             results = json.loads(stream.getvalue())
         finally:
             sys.path.remove(tmp)
@@ -97,7 +93,6 @@ def main(argv=None):
     p_build.add_argument("rubric", help="Path to rubric.json")
     p_build.add_argument("solution", help="Path to your correct solution .py script")
     p_build.add_argument("--output", default="autograder.zip", help="Output zip path")
-    p_build.add_argument("--submission-filename", help="Expected name of the student's submission file")
     p_build.add_argument("--timeout", type=float, help="Per-run timeout (seconds) for validating the solution")
     p_build.set_defaults(func=cmd_build)
 

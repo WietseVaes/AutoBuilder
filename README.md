@@ -19,7 +19,7 @@ This gives you an `autobuilder` command with two subcommands.
 ### 1. Build the autograder zip
 
 ```bash
-autobuilder build rubric.json solution.py --submission-filename HW6.py
+autobuilder build rubric.json solution.py
 ```
 
 `solution.py` is your correct code. Before generating anything, it's run
@@ -47,11 +47,12 @@ autograder.zip
 Upload `autograder.zip` to Gradescope as the autograder for a programming
 assignment (Configure Autograder -> upload `autograder.zip`).
 
-`--submission-filename` is the file name students are expected to upload
-(e.g. `HW6.py`). `prepare_submission.py` copies/renames whatever the
-student submitted to `student_submission.py` before tests run; if the name
-doesn't match but there's exactly one other `.py` file, that one is used
-instead (so a misnamed-but-otherwise-fine submission still gets graded).
+**Students can submit any `.py` file, under any name** --
+`prepare_submission.py` copies whatever they uploaded to
+`student_submission.py` before tests run. If they submit multiple `.py`
+files, all of them are concatenated into `student_submission.py` (so any
+function/variable from any of them is importable), and the original files
+are also left in place so cross-file imports between them still work.
 
 ### 2. Local self-check (for instructors or students)
 
@@ -93,6 +94,7 @@ Generates roughly:
 ```python
 @weight(1)
 def test_A0(self):
+    "Forward Euler approximation dt = 1e-7"
     try:
         from student_submission import A0
     except Exception as e:
@@ -154,52 +156,10 @@ def test_A0(self):
 
 ### Top-level config
 
-- `submission_filename` (default `"submission.py"`)
 - `timeout` (seconds, default `10`) -- used only when validating
   `solution.py` at build time
 - `requirements`: extra pip packages for `requirements.txt`
   (`gradescope-utils` is always included automatically)
-
-### Per-question attempt limits
-
-Add to any test_suite entry:
-
-```json
-{
-  "test_name": "B1",
-  ...
-  "attempts": 2,
-  "allow_tries": false
-}
-```
-
-- `attempts`: max number of "attempted" submissions counted for this
-  question. "Attempted" = the variable/function was successfully defined,
-  regardless of correctness. If omitted/0, no limit applies (unchanged
-  behavior).
-- The reported score is the **max score across attempted submissions**,
-  capped at the first `attempts` of them. Once capped, it's locked --
-  later submissions can't raise or lower it.
-- `allow_tries: true` removes the cap (every attempted submission counts
-  toward the running max, with no limit) -- use this for practice
-  questions where you still want to track "attempted" but never lock.
-- The test's displayed name gets `(attempt: n/attempts)` appended.
-
-This relies on Gradescope's `/autograder/submission_metadata.json`, which
-includes each previous submission's full `results.json` under
-`previous_submissions[i].results`. The generated code stores an
-`extra_data: {"attempted": true/false}` field per tracked test so future
-runs can read it back. **This assumes that structure is what Gradescope
-provides for your assignments** -- if `submission_metadata.json` is
-missing, empty, or shaped differently than expected, this degrades
-gracefully to "treat as first attempt" (never crashes), but the locking
-won't work as intended. Worth checking a real `/autograder/submission_metadata.json`
-from one of your assignments against `autobuilder/attempts.py`'s
-`_previous_attempts()` if attempts aren't being counted as expected.
-
-Submissions made before this feature existed have no `extra_data`, so
-they're treated as "not attempted" (students get a fresh attempt budget
-going forward rather than being retroactively penalized).
 
 ## How grading works
 
@@ -215,17 +175,33 @@ Each generated test method:
    `hint_wrong_size`, tolerance mismatch -> `hint_tolerance`
    (`numpy.allclose(rtol, atol)`).
 
-Output shown to students is just the failure message (e.g. "Expected a
-value of shape (2,), but got shape ().  Expected: [...]  Received: [...]")
-plus the relevant hint -- `JSONTestRunner` is run with `buffer=False` so
-stray `print()`/warning output from solution or student code doesn't end
-up mixed into a test's reported output.
+Output shown to students is just a short message ("Expected a value of
+shape (2,), but got shape ()." / "Your value is not within the required
+tolerance.") plus your hint -- the actual expected/solution values are
+never shown (that would leak the answer), and `JSONTestRunner` runs with
+`buffer=False` so stray `print()`/warning output from solution or student
+code doesn't end up mixed into a test's reported output.
 
 Note: grading uses direct `import`, matching the standard
 gradescope-utils/unittest pattern -- there's no per-test subprocess
 timeout. An infinite loop in a student's top-level code would hang the
 whole `run_tests.py` until Gradescope's overall submission timeout kicks
 in.
+
+## Attempt limits
+
+There's no per-question attempt tracking. Gradescope's autograder
+container only gets `/autograder/submission_metadata.yml`, which contains
+just `id`, `submitters`, `created_at`, `status` -- no history of previous
+submissions or scores. Implementing "lock in your best score after N
+attempts" *per question* would require external persistent storage (e.g.
+a small database/API keyed by student email + test name) that the
+autograder calls over the network -- real infrastructure, not just code.
+
+For a cap on the whole assignment (closer to what gspack provides),
+use Gradescope's native per-assignment **Submission Limit** setting
+(Assignment Settings), which Gradescope enforces itself before your
+autograder ever runs.
 
 ## Examples
 
