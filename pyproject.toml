@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "autobuilder"
+version = "0.1.0"
+description = "Build Gradescope autograder zips from a rubric + reference values, and run local self-checks."
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+]
+
+[project.scripts]
+autobuilder = "autobuilder.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["autobuilder*"]
+
+[tool.setuptools.package-data]
+autobuilder = ["templates/*"]
