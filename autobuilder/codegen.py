@@ -18,7 +18,7 @@ Do not edit by hand -- re-run `autobuilder build` to regenerate.
 """
 import unittest
 
-from gradescope_utils.autograder_utils.decorators import weight
+from gradescope_utils.autograder_utils.decorators import number, weight
 
 from autobuilder.comparator import compare
 from autobuilder.inputs import convert_inputs, convert_value
@@ -27,6 +27,11 @@ import solution
 
 
 class TestRubric(unittest.TestCase):
+    # test_name -> bool, whether the variable/function was successfully
+    # defined in this submission (regardless of correctness). Used by the
+    # attempts feature (autobuilder/attempts.py) to track attempted
+    # submissions across runs.
+    ATTEMPT_STATUS = {}
 '''
 
 
@@ -61,6 +66,7 @@ def _generate_test_method(t):
 
     lines = []
     lines.append(f"    @weight({score!r})")
+    lines.append(f"    @number({name!r})")
     lines.append(f"    def test_{name}(self):")
     lines.append(f"        {description!r}")
 
@@ -69,12 +75,14 @@ def _generate_test_method(t):
         lines.append("        try:")
         lines.append(f"            from student_submission import {varname}")
         lines.append("        except Exception as e:")
+        lines.append(f"            TestRubric.ATTEMPT_STATUS[{name!r}] = False")
         lines.append(
             f"            self.fail(f\"Variable {varname!r} could not be "
             f"loaded ({{type(e).__name__}}: {{e}}).\\n\" + {hint_wrong_size!r})"
         )
         lines.append("            return")
         lines.append("")
+        lines.append(f"        TestRubric.ATTEMPT_STATUS[{name!r}] = True")
         lines.append("        result = " + varname)
 
     else:  # function
@@ -83,12 +91,14 @@ def _generate_test_method(t):
         lines.append("        try:")
         lines.append(f"            from student_submission import {fname}")
         lines.append("        except Exception as e:")
+        lines.append(f"            TestRubric.ATTEMPT_STATUS[{name!r}] = False")
         lines.append(
             f"            self.fail(f\"Function {fname!r} could not be "
             f"loaded ({{type(e).__name__}}: {{e}}).\\n\" + {hint_wrong_size!r})"
         )
         lines.append("            return")
         lines.append("")
+        lines.append(f"        TestRubric.ATTEMPT_STATUS[{name!r}] = True")
         lines.append(f"        inputs = convert_inputs({inputs_repr})")
         lines.append("        try:")
         lines.append(f"            result = {fname}(*inputs)")

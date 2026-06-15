@@ -50,7 +50,7 @@ PACKAGE_DIR = os.path.dirname(__file__)
 TEMPLATES_DIR = os.path.join(PACKAGE_DIR, "templates")
 
 # Files from this package vendored into the zip for the generated tests to import.
-VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py"]
+VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py"]
 
 DEFAULT_TIMEOUT = 10
 

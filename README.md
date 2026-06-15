@@ -190,18 +190,65 @@ in.
 
 ## Attempt limits
 
-There's no per-question attempt tracking. Gradescope's autograder
-container only gets `/autograder/submission_metadata.yml`, which contains
-just `id`, `submitters`, `created_at`, `status` -- no history of previous
-submissions or scores. Implementing "lock in your best score after N
-attempts" *per question* would require external persistent storage (e.g.
-a small database/API keyed by student email + test name) that the
-autograder calls over the network -- real infrastructure, not just code.
+Add to any test_suite entry:
 
-For a cap on the whole assignment (closer to what gspack provides),
-use Gradescope's native per-assignment **Submission Limit** setting
-(Assignment Settings), which Gradescope enforces itself before your
-autograder ever runs.
+```json
+{
+  "test_name": "B1",
+  ...
+  "attempts": 2,
+  "allow_tries": false
+}
+```
+
+- `attempts`: max number of "attempted" submissions counted for this
+  question. "Attempted" = the variable/function was successfully defined,
+  regardless of correctness. If omitted/0, no limit applies (unchanged
+  behavior).
+- The reported score is the **max score across attempted submissions**,
+  capped at the first `attempts` of them. Once capped, it's locked --
+  later submissions can't raise or lower it.
+- `allow_tries: true` removes the cap: every attempted submission can
+  still raise the running max, with no limit on how many count.
+- The test's displayed name gets `(attempt: n/attempts)` appended
+  (capped at `attempts` unless `allow_tries`).
+
+### How this works
+
+Gradescope's `/autograder/submission_metadata.json` gives the autograder
+the *immediately preceding* submission's full `results.json` (under
+`previous_submissions[-1]["results"]`) -- not the full history. So instead
+of replaying history, each submission carries forward a small accumulator
+per tracked test, stored in that test's `extra_data`:
+
+```json
+{"attempts_used": 2, "best_score": 3.0}
+```
+
+Each run reads the previous submission's accumulator (matched via a
+`@number(test_name)` tag on each generated test), updates it based on
+whether *this* submission attempted the question and what it scored, and
+writes the new accumulator back into `extra_data` for the next run.
+
+This degrades gracefully: if `submission_metadata.json` is missing,
+empty, or has no matching `extra_data` (e.g. the very first submission, or
+a submission made before this feature existed), the accumulator starts at
+`{attempts_used: 0, best_score: 0.0}` -- students get a fresh budget
+rather than being penalized for missing history.
+
+One edge case: if a submission causes `run_tests.py` itself to crash
+before writing `results.json`, Gradescope records that submission with no
+`results` (`autograder_error: true`). The *next* submission's accumulator
+then resets to zero, since there's nothing to read forward from -- any
+attempts/best-score accumulated before that point are lost. This should be
+rare (it requires the autograder itself, not the student's code, to
+crash).
+
+### Whole-assignment submission caps
+
+For a cap on the whole assignment (every question, not per-question),
+Gradescope's Programming Assignment settings have a submission limit that
+Gradescope enforces itself, before `run_autograder` ever runs.
 
 ## Examples
 
