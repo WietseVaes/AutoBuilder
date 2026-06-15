@@ -27,7 +27,7 @@ from .build import build as build_zip
 from .codegen import generate_test_file
 
 PACKAGE_DIR = os.path.dirname(__file__)
-VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py"]
+VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py"]
 
 
 def cmd_build(args):
@@ -59,8 +59,12 @@ def cmd_grade(args):
             module = importlib.import_module("test_rubric")
             suite = unittest.TestLoader().loadTestsFromModule(module)
 
+            from autobuilder.attempts import make_post_processor
+            post_processor = make_post_processor(config, {}, module.TestRubric.ATTEMPT_STATUS)
+
             stream = io.StringIO()
-            JSONTestRunner(visibility="visible", stream=stream).run(suite)
+            JSONTestRunner(visibility="visible", stream=stream, buffer=False,
+                            post_processor=post_processor).run(suite)
             results = json.loads(stream.getvalue())
         finally:
             sys.path.remove(tmp)

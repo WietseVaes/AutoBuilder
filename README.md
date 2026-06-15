@@ -160,6 +160,47 @@ def test_A0(self):
 - `requirements`: extra pip packages for `requirements.txt`
   (`gradescope-utils` is always included automatically)
 
+### Per-question attempt limits
+
+Add to any test_suite entry:
+
+```json
+{
+  "test_name": "B1",
+  ...
+  "attempts": 2,
+  "allow_tries": false
+}
+```
+
+- `attempts`: max number of "attempted" submissions counted for this
+  question. "Attempted" = the variable/function was successfully defined,
+  regardless of correctness. If omitted/0, no limit applies (unchanged
+  behavior).
+- The reported score is the **max score across attempted submissions**,
+  capped at the first `attempts` of them. Once capped, it's locked --
+  later submissions can't raise or lower it.
+- `allow_tries: true` removes the cap (every attempted submission counts
+  toward the running max, with no limit) -- use this for practice
+  questions where you still want to track "attempted" but never lock.
+- The test's displayed name gets `(attempt: n/attempts)` appended.
+
+This relies on Gradescope's `/autograder/submission_metadata.json`, which
+includes each previous submission's full `results.json` under
+`previous_submissions[i].results`. The generated code stores an
+`extra_data: {"attempted": true/false}` field per tracked test so future
+runs can read it back. **This assumes that structure is what Gradescope
+provides for your assignments** -- if `submission_metadata.json` is
+missing, empty, or shaped differently than expected, this degrades
+gracefully to "treat as first attempt" (never crashes), but the locking
+won't work as intended. Worth checking a real `/autograder/submission_metadata.json`
+from one of your assignments against `autobuilder/attempts.py`'s
+`_previous_attempts()` if attempts aren't being counted as expected.
+
+Submissions made before this feature existed have no `extra_data`, so
+they're treated as "not attempted" (students get a fresh attempt budget
+going forward rather than being retroactively penalized).
+
 ## How grading works
 
 Each generated test method:
@@ -173,6 +214,12 @@ Each generated test method:
    (or a hardcoded `"expected"`) via `compare()`: shape mismatch ->
    `hint_wrong_size`, tolerance mismatch -> `hint_tolerance`
    (`numpy.allclose(rtol, atol)`).
+
+Output shown to students is just the failure message (e.g. "Expected a
+value of shape (2,), but got shape ().  Expected: [...]  Received: [...]")
+plus the relevant hint -- `JSONTestRunner` is run with `buffer=False` so
+stray `print()`/warning output from solution or student code doesn't end
+up mixed into a test's reported output.
 
 Note: grading uses direct `import`, matching the standard
 gradescope-utils/unittest pattern -- there's no per-test subprocess

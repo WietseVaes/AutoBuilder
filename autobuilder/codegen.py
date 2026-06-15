@@ -7,6 +7,12 @@ method per test_suite entry. Each method follows the
 then compares against either `solution.X` (or `solution.f(*inputs)`) or a
 hardcoded "expected" value from the rubric.
 
+Each method is also tagged with `@number(test_name)` (a stable identifier
+independent of "description" text, used to match tests across
+submissions for the attempts feature) and records whether the
+variable/function was successfully defined into TestRubric.ATTEMPT_STATUS
+(used the same way).
+
 The generated file is meant to be regenerated whenever rubric.json
 changes -- it's not intended for hand-editing, though it's plain readable
 unittest code if you need to look at what a given test does.
@@ -18,7 +24,7 @@ Do not edit by hand -- re-run `autobuilder build` to regenerate.
 """
 import unittest
 
-from gradescope_utils.autograder_utils.decorators import weight
+from gradescope_utils.autograder_utils.decorators import number, weight
 
 from autobuilder.comparator import compare
 from autobuilder.inputs import convert_inputs, convert_value
@@ -27,6 +33,10 @@ import solution
 
 
 class TestRubric(unittest.TestCase):
+    # test_name -> bool, whether the variable/function was successfully
+    # defined in this submission (regardless of correctness). Used by the
+    # attempts feature to count "attempted" submissions.
+    ATTEMPT_STATUS = {}
 '''
 
 
@@ -61,20 +71,23 @@ def _generate_test_method(t):
 
     lines = []
     lines.append(f"    @weight({score!r})")
+    lines.append(f"    @number({name!r})")
     lines.append(f"    def test_{name}(self):")
-    lines.append(f"        {description!r}")
+    lines.append(f"        {(name + ': ' + description)!r}")
 
     if ttype == "variable":
         varname = t["variable_name"]
         lines.append("        try:")
         lines.append(f"            from student_submission import {varname}")
         lines.append("        except Exception as e:")
+        lines.append(f"            TestRubric.ATTEMPT_STATUS[{name!r}] = False")
         lines.append(
             f"            self.fail(f\"Variable {varname!r} could not be "
             f"loaded ({{type(e).__name__}}: {{e}}).\\n\" + {hint_wrong_size!r})"
         )
         lines.append("            return")
         lines.append("")
+        lines.append(f"        TestRubric.ATTEMPT_STATUS[{name!r}] = True")
         lines.append("        result = " + varname)
 
     else:  # function
@@ -83,12 +96,14 @@ def _generate_test_method(t):
         lines.append("        try:")
         lines.append(f"            from student_submission import {fname}")
         lines.append("        except Exception as e:")
+        lines.append(f"            TestRubric.ATTEMPT_STATUS[{name!r}] = False")
         lines.append(
             f"            self.fail(f\"Function {fname!r} could not be "
             f"loaded ({{type(e).__name__}}: {{e}}).\\n\" + {hint_wrong_size!r})"
         )
         lines.append("            return")
         lines.append("")
+        lines.append(f"        TestRubric.ATTEMPT_STATUS[{name!r}] = True")
         lines.append(f"        inputs = convert_inputs({inputs_repr})")
         lines.append("        try:")
         lines.append(f"            result = {fname}(*inputs)")
@@ -116,4 +131,4 @@ def generate_test_file(test_suite):
     methods = [_generate_test_method(t) for t in test_suite if _is_python_test(t)]
     if not methods:
         methods.append("    pass")
-    return HEADER + "\n".join(methods) + "\n"
+    return HEADER + "\n" + "\n".join(methods) + "\n"
