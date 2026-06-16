@@ -19,19 +19,22 @@ A test_suite entry can set:
   "attempts": N         -- max number of "attempted" submissions counted
                             for this question. If absent/0, no limit is
                             applied (normal grading, unchanged).
-  "allow_tries": true   -- no cap: every attempted submission updates the
-                            running max (default false, which stops
-                            updating the max -- and stops incrementing the
-                            displayed count past N -- once N attempted
-                            submissions have occurred).
+  "allow_tries": true   -- no cap: every attempted submission can still
+                            raise the running max (default false, which
+                            stops updating the max -- and stops
+                            incrementing the displayed count past N --
+                            once N attempted submissions have occurred).
 
 "Attempted" means the variable/function was successfully defined in this
-submission, regardless of whether its value was correct.
+submission, regardless of whether its value was correct. This is recorded
+by each generated test via autobuilder.attempt_recorder and read back here.
 
 This module is defensive: if submission_metadata.json is missing, empty,
 or doesn't have the expected shape, it's treated as "first submission,
 empty accumulator" -- this never raises.
 """
+
+from . import attempt_recorder
 
 
 def _previous_accumulator(metadata, test_name):
@@ -54,11 +57,12 @@ def _previous_accumulator(metadata, test_name):
     return {"attempts_used": 0, "best_score": 0.0}
 
 
-def make_post_processor(config, metadata, attempt_status):
+def make_post_processor(config, metadata):
     """Returns a JSONTestRunner post_processor that applies attempt limits
     and rewrites each affected test's score/name/extra_data in place."""
 
     def post_processor(json_data):
+        attempt_status = attempt_recorder.load()
         tests = json_data.get("tests", [])
         by_number = {t.get("number"): t for t in tests}
 
@@ -92,10 +96,35 @@ def make_post_processor(config, metadata, attempt_status):
 
             result["score"] = best_score
             shown = attempts_used if allow_tries else min(attempts_used, attempts_limit)
-            result["name"] = f"{result['name']} (attempt: {shown}/{attempts_limit})"
+            result["name"] = f"(attempt: {shown}/{attempts_limit}) {result['name']}"
             result["extra_data"] = {"attempts_used": attempts_used, "best_score": best_score}
 
+            # Hide the numeric score from Gradescope's per-test display
+            # (so students can't back-calculate the answer from the score).
+            # Instead put it in the output field as plain text.
+            locked_display = f"Locked score: {best_score:g}/{max_score:g}"
+            existing_output = result.get("output") or ""
+            result["output"] = (locked_display + "\n" + existing_output).strip()
+            result["score"] = 0
+            result["max_score"] = 0
+
+        # Recompute overall score: for attempt-limited tests, the per-test
+        # score was zeroed out (to hide it from display), so accumulate
+        # the locked scores separately.
+        total = 0.0
+        for t_cfg in config.get("test_suite", []):
+            test_name = t_cfg["test_name"]
+            result = by_number.get(test_name)
+            if result is None:
+                continue
+            if t_cfg.get("attempts"):
+                # use best_score from extra_data (we just wrote it above)
+                extra = result.get("extra_data") or {}
+                total += float(extra.get("best_score", 0.0))
+            else:
+                total += float(result.get("score", 0.0) or 0.0)
+
         if tests:
-            json_data["score"] = sum(t.get("score", 0.0) or 0.0 for t in tests)
+            json_data["score"] = total
 
     return post_processor

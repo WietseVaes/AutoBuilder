@@ -27,7 +27,7 @@ from .build import build as build_zip
 from .codegen import generate_test_file
 
 PACKAGE_DIR = os.path.dirname(__file__)
-VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py"]
+VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py", "attempt_recorder.py"]
 
 
 def cmd_build(args):
@@ -43,6 +43,7 @@ def cmd_grade(args):
         config = json.load(f)
 
     with tempfile.TemporaryDirectory() as tmp:
+        os.environ["AUTOBUILDER_STATUS_PATH"] = os.path.join(tmp, "_attempt_status.json")
         pkg_dir = os.path.join(tmp, "autobuilder")
         os.makedirs(pkg_dir)
         for fname in VENDOR_FILES:
@@ -56,11 +57,15 @@ def cmd_grade(args):
 
         sys.path.insert(0, tmp)
         try:
+            from autobuilder import attempt_recorder
+            from autobuilder.attempts import make_post_processor
+
+            attempt_recorder.clear()
+
             module = importlib.import_module("test_rubric")
             suite = unittest.TestLoader().loadTestsFromModule(module)
 
-            from autobuilder.attempts import make_post_processor
-            post_processor = make_post_processor(config, {}, module.TestRubric.ATTEMPT_STATUS)
+            post_processor = make_post_processor(config, {})
 
             stream = io.StringIO()
             JSONTestRunner(visibility="visible", stream=stream, buffer=False,
