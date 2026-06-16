@@ -1,15 +1,15 @@
 """
 Generates tests/test_rubric.py from a rubric's test_suite.
 
-The generated file is a plain unittest.TestCase, one @weight-decorated
-method per test_suite entry. Each method follows the
-`try: from student_submission import X except Exception: ...` pattern,
-then compares against either `solution.X` (or `solution.f(*inputs)`) or a
-hardcoded "expected" value from the rubric.
+Hint resolution order for each status:
+  not_defined  -> hint_not_defined (fallback: hint_wrong_size)
+  wrong_type   -> hint_wrong_type  (fallback: hint_wrong_size)
+  wrong_size   -> hint_wrong_size
+  nans         -> hint_nans        (fallback: hint_tolerance)
+  tolerance    -> hint_tolerance
 
-The generated file is meant to be regenerated whenever rubric.json
-changes -- it's not intended for hand-editing, though it's plain readable
-unittest code if you need to look at what a given test does.
+Each hint key can have a language-specific override by appending "_python",
+e.g. "hint_wrong_size_python" overrides "hint_wrong_size" for Python only.
 """
 
 HEADER = '''"""
@@ -35,48 +35,44 @@ def _is_python_test(t):
     return t.get("language", "python") == "python"
 
 
+def _hint(t, key, fallback_key=None):
+    """Return the most specific hint for key, with Python-suffix override."""
+    python_key = key + "_python"
+    val = t.get(python_key) or t.get(key, "")
+    if not val and fallback_key:
+        python_fallback = fallback_key + "_python"
+        val = t.get(python_fallback) or t.get(fallback_key, "")
+    return val
+
+
 def _expected_expr(t):
     if "expected" in t:
         return f"convert_value({t['expected']!r})"
-
     ttype = t.get("type", "variable")
     if ttype == "variable":
         expr = f"solution.{t['variable_name']}"
     else:
         expr = f"solution.{t['function_name']}(*inputs)"
-
     if t.get("output_index") is not None:
         expr += f"[{t['output_index']!r}]"
     return expr
 
 
-def _to_json_safe(val):
-    """Convert a value to something safely repr()-able in generated Python code.
-    numpy arrays become nested lists; everything else passes through."""
-    try:
-        import numpy as np
-        if isinstance(val, np.ndarray):
-            return val.tolist()
-        if isinstance(val, np.generic):
-            return val.item()
-    except ImportError:
-        pass
-    if isinstance(val, (list, tuple)):
-        return [_to_json_safe(v) for v in val]
-    return val
-
-
 def _generate_test_method(t, index=0):
-    name = t["test_name"]
-    score = t.get("score", 0)
-    description = t.get("description", name)
-    hint_wrong_size = t.get("hint_wrong_size", "")
-    hint_tolerance = t.get("hint_tolerance", "")
-    rtol = t.get("rtol", 1e-6)
-    atol = t.get("atol", 1e-6)
-    ttype = t.get("type", "variable")
+    name         = t["test_name"]
+    score        = t.get("score", 0)
+    description  = t.get("description", name)
+    rtol         = t.get("rtol", 1e-6)
+    atol         = t.get("atol", 1e-6)
+    ttype        = t.get("type", "variable")
 
-    # Zero-pad index so unittest's alphabetical sort matches rubric order.
+    # Resolve all hint variants
+    h_not_defined = _hint(t, "hint_not_defined", "hint_wrong_size")
+    h_wrong_type  = _hint(t, "hint_wrong_type",  "hint_wrong_size")
+    h_wrong_size  = _hint(t, "hint_wrong_size")
+    h_nans        = _hint(t, "hint_nans",        "hint_tolerance")
+    h_tolerance   = _hint(t, "hint_tolerance")
+
     method_name = f"test_{index:04d}_{name}"
 
     lines = []
@@ -92,24 +88,23 @@ def _generate_test_method(t, index=0):
         lines.append("        except Exception as e:")
         lines.append(f"            _record_attempt({name!r}, False)")
         lines.append(
-            f"            self.fail(f\"Variable {varname!r} could not be "
-            f"loaded ({{type(e).__name__}}: {{e}}).\\nHint: \" + {hint_wrong_size!r})"
+            f"            self.fail(f\"Variable {varname!r} could not be loaded "
+            f"({{type(e).__name__}}: {{e}}).\\nHint: \" + {h_not_defined!r})"
         )
         lines.append("            return")
         lines.append("")
         lines.append(f"        _record_attempt({name!r}, True)")
-        lines.append("        result = " + varname)
-
-    else:  # function
-        fname = t["function_name"]
+        lines.append(f"        result = {varname}")
+    else:
+        fname       = t["function_name"]
         inputs_repr = repr(t.get("inputs", []))
         lines.append("        try:")
         lines.append(f"            from student_submission import {fname}")
         lines.append("        except Exception as e:")
         lines.append(f"            _record_attempt({name!r}, False)")
         lines.append(
-            f"            self.fail(f\"Function {fname!r} could not be "
-            f"loaded ({{type(e).__name__}}: {{e}}).\\nHint: \" + {hint_wrong_size!r})"
+            f"            self.fail(f\"Function {fname!r} could not be loaded "
+            f"({{type(e).__name__}}: {{e}}).\\nHint: \" + {h_not_defined!r})"
         )
         lines.append("            return")
         lines.append("")
@@ -120,8 +115,7 @@ def _generate_test_method(t, index=0):
         lines.append("        except Exception as e:")
         lines.append(
             f"            self.fail(f\"Your code raised an error when calling "
-            f"{fname}({{', '.join(repr(x) for x in inputs)}}): "
-            f"{{type(e).__name__}}: {{e}}\\n\" + {hint_wrong_size!r})"
+            f"{fname}(...): {{type(e).__name__}}: {{e}}\\nHint: \" + {h_not_defined!r})"
         )
         lines.append("            return")
         if t.get("output_index") is not None:
@@ -129,10 +123,14 @@ def _generate_test_method(t, index=0):
 
     lines.append(f"        expected = {_expected_expr(t)}")
     lines.append(f"        status, message = compare(result, expected, {rtol!r}, {atol!r})")
-    lines.append('        if status == "shape":')
-    lines.append(f"            self.fail(message + \"\\nHint: \" + {hint_wrong_size!r})")
+    lines.append('        if status == "wrong_type":')
+    lines.append(f"            self.fail(message + \"\\nHint: \" + {h_wrong_type!r})")
+    lines.append('        elif status == "wrong_size":')
+    lines.append(f"            self.fail(message + \"\\nHint: \" + {h_wrong_size!r})")
+    lines.append('        elif status == "nans":')
+    lines.append(f"            self.fail(message + \"\\nHint: \" + {h_nans!r})")
     lines.append('        elif status == "tolerance":')
-    lines.append(f"            self.fail(message + \"\\nHint: \" + {hint_tolerance!r})")
+    lines.append(f"            self.fail(message + \"\\nHint: \" + {h_tolerance!r})")
     lines.append("")
     return "\n".join(lines)
 

@@ -1,10 +1,10 @@
 # autobuilder
 
-Builds Gradescope-ready autograder zips from a rubric + solution script, using PyUnit and [gradescope-utils](https://github.com/gradescope/gradescope-utils). No manual pickling, no third-party autograder package needed on Gradescope's end.
+Builds Gradescope-ready autograder zips from a rubric + solution script, using PyUnit and [gradescope-utils](https://github.com/gradescope/gradescope-utils).
 
 ## Installation
 
-Make sure the repo is **public** on GitHub, then:
+The repo must be **public** on GitHub. Then:
 
 ```bash
 pip install git+https://github.com/WietseVaes/AutoBuilder.git
@@ -16,7 +16,17 @@ To upgrade:
 pip install --upgrade git+https://github.com/WietseVaes/AutoBuilder.git
 ```
 
-If `autobuilder` is not recognised as a command after install, add Python's Scripts folder to your PATH. On Windows:
+### Adding `autobuilder` to PATH (Windows)
+
+If `autobuilder` is not recognised as a command after install:
+
+**Temporary (current terminal session only):**
+
+```powershell
+$env:PATH += ";C:\Users\<you>\AppData\Local\Python\pythoncore-3.14-64\Scripts"
+```
+
+**Permanent (all future terminal sessions):**
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable(
@@ -38,15 +48,13 @@ Then reopen your terminal.
 autobuilder build rubric.json solution.py
 ```
 
-Generates `autograder.zip` in the current folder. Upload this to Gradescope under Configure Autograder.
-
 ### With an inputs file
 
 ```bash
 autobuilder build rubric.json solution.py --inputs test_inputs.py
 ```
 
-`test_inputs.py` is a plain Python script that defines variables referenced in the rubric with a `$` prefix (see below). Useful when test inputs are computed or loaded from data rather than hardcoded as JSON.
+`test_inputs.py` is a plain Python script defining variables referenced in the rubric with a `$` prefix (see below). Use this when test inputs are computed in Python rather than hardcoded as JSON.
 
 ### Options
 
@@ -60,8 +68,6 @@ autobuilder build rubric.json solution.py --inputs test_inputs.py
 
 ## Local self-check
 
-Run the exact same grading logic locally before uploading:
-
 ```bash
 autobuilder grade rubric.json solution.py submission.py
 autobuilder grade rubric.json solution.py submission.py --inputs test_inputs.py
@@ -74,31 +80,47 @@ autobuilder grade rubric.json solution.py submission.py --inputs test_inputs.py
 ```json
 {
   "requirements": ["numpy", "scipy"],
+  "extra_files": ["train_data.csv", "test_data.csv"],
   "timeout": 10,
   "debug": false,
   "test_suite": [ ... ]
 }
 ```
 
-`requirements` are installed by `setup.sh` on Gradescope. `debug: true` adds metadata diagnostics to the Gradescope results page (useful for troubleshooting attempt counters). `timeout` only applies when validating `solution.py` at build time.
+| Field | Description |
+|-------|-------------|
+| `requirements` | pip packages installed by `setup.sh` on Gradescope |
+| `extra_files` | Data files (`.csv` etc.) placed next to `rubric.json`, copied into the autograder zip and available at grading time |
+| `timeout` | Seconds allowed when validating `solution.py` at build time |
+| `debug` | `true` adds metadata diagnostics to the Gradescope results page (useful for troubleshooting attempt counters) |
 
 ### Test entry fields
 
-Every test entry requires:
+| Field | Required | Description |
+|-------|----------|-------------|
+| `test_name` | ✓ | Unique identifier used internally and for attempt tracking |
+| `type` | | `"variable"` (default) or `"function"` |
+| `description` | ✓ | Test title shown to students |
+| `score` | ✓ | Points for this test |
+| `rtol`, `atol` | ✓ | Tolerances for `numpy.allclose`. Use `0` for exact/string comparison |
+| `attempts` | | Max number of attempted submissions for this question (see below) |
+| `allow_tries` | | `true` = no attempt cap, just track running best (default `false`) |
 
-| Field | Description |
-|-------|-------------|
-| `test_name` | Unique identifier, used internally and for attempt tracking |
-| `type` | `"variable"` (default) or `"function"` |
-| `description` | Shown to students as the test title |
-| `score` | Points for this test |
-| `hint_wrong_size` | Shown when the type or shape is wrong |
-| `hint_tolerance` | Shown when the value is wrong |
-| `rtol`, `atol` | Tolerances for `numpy.allclose` (use `0` for exact/string comparison) |
+### Hint fields
+
+All hint fields are optional. When a test fails, the most specific matching hint is shown with a `Hint:` prefix. Any hint key can be suffixed with `_python` to apply only to Python submissions (e.g. `hint_wrong_size_python`), which overrides the plain version.
+
+| Field | When it appears |
+|-------|-----------------|
+| `hint_not_defined` | Variable/function could not be imported (falls back to `hint_wrong_size`) |
+| `hint_wrong_type` | Value is the wrong Python type (falls back to `hint_wrong_size`) |
+| `hint_wrong_size` | Array has the wrong shape |
+| `hint_nans` | Value contains NaN (falls back to `hint_tolerance`) |
+| `hint_tolerance` | Value is the right type and shape but numerically incorrect |
 
 ### Variable test
 
-Compares a named variable from the student's script against `solution.py` or a hardcoded `expected` value.
+Compares a named variable from the student's script against `solution.py` (default) or a hardcoded `expected` value.
 
 ```json
 {
@@ -109,18 +131,21 @@ Compares a named variable from the student's script against `solution.py` or a h
   "rtol": 1e-6,
   "atol": 1e-6,
   "score": 2,
-  "hint_wrong_size": "result should be a numpy array of shape (3,).",
+  "hint_not_defined": "Define a variable called result.",
+  "hint_wrong_type": "result should be a numpy array.",
+  "hint_wrong_size": "result should have shape (3,).",
+  "hint_nans": "result must not contain NaN.",
   "hint_tolerance": "Check your formula."
 }
 ```
 
-To use a hardcoded expected value instead of `solution.py`:
+To use a hardcoded expected value instead of comparing to `solution.py`:
 
 ```json
 "expected": 42.0
 ```
 
-Strings and booleans work too -- set `rtol: 0, atol: 0` and put the value in `expected`:
+Strings, booleans, and lists also work -- set `rtol: 0, atol: 0`:
 
 ```json
 "expected": "hello world"
@@ -140,6 +165,7 @@ Calls a named function with given inputs and compares the return value against `
   "rtol": 1e-6,
   "atol": 1e-6,
   "score": 3,
+  "hint_not_defined": "Define a function called rk4_step.",
   "hint_wrong_size": "rk4_step should return a length-2 array.",
   "hint_tolerance": "Check your RK4 weighted average: (k1 + 2*k2 + 2*k3 + k4) / 6."
 }
@@ -169,6 +195,8 @@ Also works for `expected`:
 "expected": "$my_expected_value"
 ```
 
+Numpy arrays are automatically serialised to lists when embedded in the generated test code.
+
 ### Attempt limits
 
 ```json
@@ -176,11 +204,11 @@ Also works for `expected`:
 "allow_tries": false
 ```
 
-`attempts` sets the maximum number of "attempted" submissions counted for this question (a submission counts as attempted if the variable or function was defined, regardless of correctness). The student's score is locked at the **best score across their attempts**.
+`attempts` sets the maximum number of "attempted" submissions counted for this question. A submission counts as attempted if the variable or function was defined, regardless of correctness. The student's score is locked at the **best score across their attempts**.
 
 `allow_tries: true` removes the cap -- every submission updates the running best with no limit.
 
-Once all attempt-limited questions in a rubric are exhausted (or full credit is earned), further submissions are blocked with a message and the previous results are carried forward unchanged.
+Once all attempt-limited questions in a rubric are exhausted (or full credit is earned on all of them), further submissions are blocked with a message and the previous results are carried forward unchanged.
 
 Attempt tracking requires Gradescope's "Allow resubmission" setting to be enabled on the assignment.
 
@@ -194,7 +222,7 @@ Students can submit **any `.py` file under any name**. If multiple `.py` files a
 
 ## Worked example
 
-See `autobuilder/examples/total_test/` for a complete example covering strings, lists, numpy arrays, a function (RK4), and a maximisation problem -- with `solution.py`, `rubric.json`, `test_inputs.py`, and four example student submissions showing a progression from 0/20 to 20/20.
+See `autobuilder/examples/total_test/` for a complete example covering strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem -- with `solution.py`, `rubric.json`, `test_inputs.py`, and four example student submissions showing a progression from 0/20 to 20/20.
 
 ```bash
 cd autobuilder/examples/total_test

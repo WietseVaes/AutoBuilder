@@ -131,6 +131,16 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
         with open(os.path.join(tests_dir, "test_rubric.py"), "w") as f:
             f.write(generate_test_file(config["test_suite"]))
 
+        # extra_files (e.g. data files like .csv needed at grading time)
+        rubric_dir = os.path.dirname(os.path.abspath(rubric_path))
+        for fname in config.get("extra_files", []):
+            src = os.path.join(rubric_dir, fname)
+            if not os.path.exists(src):
+                raise RuntimeError(
+                    f"extra_files: '{fname}' not found next to rubric.json (looked at {src})"
+                )
+            shutil.copy(src, os.path.join(staging, fname))
+
         # solution.py
         shutil.copy(solution_path, os.path.join(staging, "solution.py"))
 
