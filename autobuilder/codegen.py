@@ -66,7 +66,7 @@ def _to_json_safe(val):
     return val
 
 
-def _generate_test_method(t):
+def _generate_test_method(t, index=0):
     name = t["test_name"]
     score = t.get("score", 0)
     description = t.get("description", name)
@@ -76,10 +76,13 @@ def _generate_test_method(t):
     atol = t.get("atol", 1e-6)
     ttype = t.get("type", "variable")
 
+    # Zero-pad index so unittest's alphabetical sort matches rubric order.
+    method_name = f"test_{index:04d}_{name}"
+
     lines = []
     lines.append(f"    @weight({score!r})")
     lines.append(f"    @number({name!r})")
-    lines.append(f"    def test_{name}(self):")
+    lines.append(f"    def {method_name}(self):")
     lines.append(f"        {description!r}")
 
     if ttype == "variable":
@@ -135,7 +138,10 @@ def _generate_test_method(t):
 
 
 def generate_test_file(test_suite):
-    methods = [_generate_test_method(t) for t in test_suite if _is_python_test(t)]
+    methods = []
+    for i, t in enumerate(test_suite):
+        if _is_python_test(t):
+            methods.append(_generate_test_method(t, i))
     if not methods:
         methods.append("    pass")
     return HEADER + "\n".join(methods) + "\n"
