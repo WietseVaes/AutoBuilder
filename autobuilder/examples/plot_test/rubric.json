@@ -1,0 +1,33 @@
+{
+  "requirements": ["numpy", "matplotlib"],
+  "test_suite": [
+    {
+      "test_name": "A1",
+      "type": "variable",
+      "variable_name": "damped_wave",
+      "description": "damped_wave is the correct array: exp(-0.2*t) * sin(3*t)",
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "score": 4,
+      "hint_not_defined": "Define a variable called damped_wave.",
+      "hint_wrong_size": "damped_wave should have shape (100,) -- one value per time point in t.",
+      "hint_tolerance": "Check your formula: damped_wave = exp(-0.2 * t) * sin(3 * t)."
+    },
+    {
+      "test_name": "P1",
+      "type": "plot",
+      "function_name": "make_damped_wave_plot",
+      "inputs": [],
+      "description": "make_damped_wave_plot() produces the correct labelled, titled plot with legend",
+      "plot_checks": ["xlabel", "ylabel", "title", "legend_labels", "n_lines", "line_data"],
+      "rtol": 1e-2,
+      "atol": 1e-2,
+      "score": 6,
+      "hint_not_defined": "Define a function called make_damped_wave_plot() that returns a matplotlib Axes.",
+      "hint_wrong_type": "make_damped_wave_plot should return a matplotlib Axes (or Figure).",
+      "hint_wrong_size": "Check that you plot exactly one line, with one label in the legend, over 100 time points.",
+      "hint_tolerance": "Check your axis labels ('time (s)', 'amplitude'), title ('Damped Sine Wave'), legend label ('damped wave'), and the plotted data itself.",
+      "hint_image": "expected_damped_wave.png"
+    }
+  ]
+}

@@ -328,9 +328,11 @@ Students can submit **any `.py` or `.ipynb` file under any name**. If multiple f
 
 ---
 
-## Worked example
+## Worked examples
 
-See `autobuilder/examples/total_test/` for a complete example covering strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem -- with `solution.py`, `rubric.json`, `test_inputs.py`, and five example student submissions showing a progression from 0/20 to 20/20. `submission_05_correct_notebook.ipynb` is the same correct solution submitted as a Jupyter notebook (with markdown cells and a `%matplotlib`/`!pip install` thrown in), to demonstrate `.ipynb` support. Every test entry in its `rubric.json` has all five hint types (`hint_not_defined`, `hint_wrong_type`, `hint_wrong_size`, `hint_nans`, `hint_tolerance`) filled in, plus two `_python`-suffixed overrides, as a reference for how to write them.
+- `autobuilder/examples/total_test/`: strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem, with five example submissions (four `.py`, one `.ipynb`) showing a progression from 0/20 to 20/20. Every test entry's `rubric.json` has all five hint types filled in, as a reference.
+- `autobuilder/examples/dataframe_test/`: a `pandas.DataFrame` built from scratch, a derived column, and a groupby summary -- three submissions showing a column-name mismatch and a value mismatch cascading into a dependent test.
+- `autobuilder/examples/plot_test/`: a numpy array plus a matplotlib plot of it, with separate `hint_wrong_size`/`hint_tolerance` hints on both the array test and the plot test. The plot test's `hint_image` (a rendered reference plot, `expected_damped_wave.png`) is attached only to its tolerance-failure path -- three submissions demonstrate the image appearing only when the *values* are wrong, not when the *size* is wrong.
 
 ```bash
 cd autobuilder/examples/total_test

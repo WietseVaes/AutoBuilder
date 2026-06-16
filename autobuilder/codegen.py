@@ -154,7 +154,7 @@ def _generate_plot_test_method(t, index=0):
     lines.append("        except AttributeError as e:")
     lines.append(
         f"            self.fail(f\"Expected a matplotlib Axes (or a Figure with one Axes), "
-        f"got {{type(ax).__name__}}: {{e}}.\" + {_hint_suffix_expr(repr(h_wrong_type), image_md_repr)})"
+        f"got {{type(ax).__name__}}: {{e}}.\" + {_hint_suffix_expr(repr(h_wrong_type))})"
     )
     lines.append("            return")
     lines.append("")
@@ -167,9 +167,9 @@ def _generate_plot_test_method(t, index=0):
     lines.append("        rtol_, atol_ = " + repr(t.get("rtol", 1e-2)) + ", " + repr(t.get("atol", 1e-2)))
     lines.append("        status, message = compare_axes_info(student_info, ref_info, rtol_, atol_)")
     lines.append('        if status == "wrong_type":')
-    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_type), image_md_repr)})")
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_type))})")
     lines.append('        elif status == "wrong_size":')
-    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_size), image_md_repr)})")
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_size))})")
     lines.append('        elif status == "nans":')
     lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_nans), image_md_repr)})")
     lines.append('        elif status == "tolerance":')
@@ -217,9 +217,9 @@ def _generate_test_method(t, index=0):
     lines.append(f"        expected = {_expected_expr(t)}")
     lines.append(f"        status, message = compare(result, expected, {rtol!r}, {atol!r})")
     lines.append('        if status == "wrong_type":')
-    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_type), image_md_repr)})")
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_type))})")
     lines.append('        elif status == "wrong_size":')
-    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_size), image_md_repr)})")
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_size))})")
     lines.append('        elif status == "nans":')
     lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_nans), image_md_repr)})")
     lines.append('        elif status == "tolerance":')

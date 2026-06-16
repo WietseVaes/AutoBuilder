@@ -1,0 +1,46 @@
+{
+  "requirements": ["pandas", "numpy"],
+  "test_suite": [
+    {
+      "test_name": "DF1",
+      "type": "variable",
+      "variable_name": "grades_df",
+      "description": "grades_df has the correct columns, names, and scores",
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "score": 4,
+      "hint_not_defined": "Define a DataFrame called grades_df. Check the spelling of the variable name.",
+      "hint_wrong_type": "grades_df should be a pandas DataFrame, not a list, dict, or numpy array.",
+      "hint_wrong_size": "grades_df should have columns ['name', 'score', 'passed'] and 5 rows -- one per student.",
+      "hint_nans": "grades_df contains NaN values in a numeric column. Check your score values.",
+      "hint_tolerance": "Check the 'score' values: [88.0, 72.5, 95.0, 60.0, 81.5]."
+    },
+    {
+      "test_name": "DF2",
+      "type": "variable",
+      "variable_name": "grades_df",
+      "description": "grades_df's 'passed' column is correct (pass = score >= 70)",
+      "rtol": 0,
+      "atol": 0,
+      "score": 3,
+      "hint_not_defined": "Define a DataFrame called grades_df. Check the spelling of the variable name.",
+      "hint_wrong_type": "grades_df should be a pandas DataFrame.",
+      "hint_wrong_size": "grades_df should have a 'passed' column with one boolean value per student.",
+      "hint_tolerance": "passed should be True where score >= 70, and False otherwise."
+    },
+    {
+      "test_name": "DF3",
+      "type": "variable",
+      "variable_name": "summary_df",
+      "description": "summary_df has the correct average score per pass/fail group",
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "score": 3,
+      "hint_not_defined": "Define a DataFrame called summary_df.",
+      "hint_wrong_type": "summary_df should be a pandas DataFrame.",
+      "hint_wrong_size": "summary_df should have columns ['passed', 'average_score'] and 2 rows (one per group).",
+      "hint_nans": "summary_df contains NaN -- check that every group has at least one student.",
+      "hint_tolerance": "Use grades_df.groupby('passed')['score'].mean() to compute group averages."
+    }
+  ]
+}
