@@ -1,132 +1,134 @@
 # autobuilder
 
-A small, self-contained autograder builder for Gradescope, built around
-**unittest + gradescope-utils** (the standard PyUnit integration). Given a
-`rubric.json` (test specs) and your correct solution script, it generates
-a `tests/test_rubric.py` -- one `@weight`-decorated test method per rubric
-entry -- and packages it into a Gradescope-ready `autograder.zip`.
+Builds Gradescope-ready autograder zips from a rubric + solution script, using PyUnit and [gradescope-utils](https://github.com/gradescope/gradescope-utils). No manual pickling, no third-party autograder package needed on Gradescope's end.
 
-## Install
+## Installation
+
+Make sure the repo is **public** on GitHub, then:
 
 ```bash
-pip install git+https://github.com/<you>/autobuilder.git
+pip install git+https://github.com/WietseVaes/AutoBuilder.git
 ```
 
-This gives you an `autobuilder` command with two subcommands.
+To upgrade:
 
-## Usage
+```bash
+pip install --upgrade git+https://github.com/WietseVaes/AutoBuilder.git
+```
 
-### 1. Build the autograder zip
+If `autobuilder` is not recognised as a command after install, add Python's Scripts folder to your PATH. On Windows:
+
+```powershell
+[System.Environment]::SetEnvironmentVariable(
+    "PATH",
+    $env:PATH + ";C:\Users\<you>\AppData\Local\Python\pythoncore-3.14-64\Scripts",
+    [System.EnvironmentVariableTarget]::User
+)
+```
+
+Then reopen your terminal.
+
+---
+
+## Building an autograder zip
+
+### Without an inputs file
 
 ```bash
 autobuilder build rubric.json solution.py
 ```
 
-`solution.py` is your correct code. Before generating anything, it's run
-once (in an isolated subprocess) to check it actually defines everything
-the rubric needs and doesn't crash -- catching rubric/solution mismatches
-at build time.
+Generates `autograder.zip` in the current folder. Upload this to Gradescope under Configure Autograder.
 
-This writes `autograder.zip` (the default `--output`) with the structure:
-
-```
-autograder.zip
-|-- requirements.txt
-|-- run_autograder
-|-- run_tests.py
-|-- setup.sh
-|-- prepare_submission.py
-|-- solution.py            (your solution, shipped as-is)
-|-- rubric.json
-|-- autobuilder/             (small vendored helper: comparator + input conversion)
-`-- tests/
-    |-- __init__.py
-    `-- test_rubric.py       (generated -- one @weight test per rubric entry)
-```
-
-Upload `autograder.zip` to Gradescope as the autograder for a programming
-assignment (Configure Autograder -> upload `autograder.zip`).
-
-**Students can submit any `.py` file, under any name** --
-`prepare_submission.py` copies whatever they uploaded to
-`student_submission.py` before tests run. If they submit multiple `.py`
-files, all of them are concatenated into `student_submission.py` (so any
-function/variable from any of them is importable), and the original files
-are also left in place so cross-file imports between them still work.
-
-### 2. Local self-check (for instructors or students)
+### With an inputs file
 
 ```bash
-autobuilder grade rubric.json solution.py my_submission.py
+autobuilder build rubric.json solution.py --inputs test_inputs.py
 ```
 
-Generates the same `tests/test_rubric.py` and runs it with the exact same
-`JSONTestRunner` Gradescope uses, against `solution.py` and
-`my_submission.py`. Prints a pass/fail summary with scores and hints.
-Useful for testing the rubric and solution before building, or for
-students to sanity-check their own solution before submitting.
+`test_inputs.py` is a plain Python script that defines variables referenced in the rubric with a `$` prefix (see below). Useful when test inputs are computed or loaded from data rather than hardcoded as JSON.
+
+### Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--inputs` | — | Path to a `.py` file defining input variables |
+| `--output` | `autograder.zip` | Output zip path |
+| `--timeout` | `10` | Seconds allowed when validating `solution.py` at build time |
+
+---
+
+## Local self-check
+
+Run the exact same grading logic locally before uploading:
+
+```bash
+autobuilder grade rubric.json solution.py submission.py
+autobuilder grade rubric.json solution.py submission.py --inputs test_inputs.py
+```
+
+---
 
 ## rubric.json format
 
-Each entry in `test_suite` is a **variable test** (compare a name from the
-student's module) or a **function test** (call a function with given
-inputs and compare its return value). The expected value comes from
-`solution.py` by default, or can be hardcoded with `"expected"`.
+```json
+{
+  "requirements": ["numpy", "scipy"],
+  "timeout": 10,
+  "debug": false,
+  "test_suite": [ ... ]
+}
+```
 
-### Variable test, compared against solution.py
+`requirements` are installed by `setup.sh` on Gradescope. `debug: true` adds metadata diagnostics to the Gradescope results page (useful for troubleshooting attempt counters). `timeout` only applies when validating `solution.py` at build time.
+
+### Test entry fields
+
+Every test entry requires:
+
+| Field | Description |
+|-------|-------------|
+| `test_name` | Unique identifier, used internally and for attempt tracking |
+| `type` | `"variable"` (default) or `"function"` |
+| `description` | Shown to students as the test title |
+| `score` | Points for this test |
+| `hint_wrong_size` | Shown when the type or shape is wrong |
+| `hint_tolerance` | Shown when the value is wrong |
+| `rtol`, `atol` | Tolerances for `numpy.allclose` (use `0` for exact/string comparison) |
+
+### Variable test
+
+Compares a named variable from the student's script against `solution.py` or a hardcoded `expected` value.
 
 ```json
 {
-  "test_name": "A0",
+  "test_name": "A1",
   "type": "variable",
-  "variable_name": "A0",
-  "description": "Forward Euler approximation dt = 1e-7",
-  "hint_wrong_size": "Do you include the initial condition",
-  "hint_tolerance": "Is your function dV/dt defined correctly, with correct parameters",
+  "variable_name": "result",
+  "description": "result is correct",
   "rtol": 1e-6,
   "atol": 1e-6,
-  "score": 1
+  "score": 2,
+  "hint_wrong_size": "result should be a numpy array of shape (3,).",
+  "hint_tolerance": "Check your formula."
 }
 ```
 
-Generates roughly:
-
-```python
-@weight(1)
-def test_A0(self):
-    "Forward Euler approximation dt = 1e-7"
-    try:
-        from student_submission import A0
-    except Exception as e:
-        self.fail(f"Variable 'A0' could not be loaded ({type(e).__name__}: {e}).\n" + "Do you include the initial condition")
-        return
-    result = A0
-    expected = solution.A0
-    status, message = compare(result, expected, 1e-06, 1e-06)
-    if status == "shape":
-        self.fail(message + "\n" + "Do you include the initial condition")
-    elif status == "tolerance":
-        self.fail(message + "\n" + "Is your function dV/dt defined correctly, with correct parameters")
-```
-
-### Variable test, with a hardcoded expected value (no solution.py needed for this entry)
+To use a hardcoded expected value instead of `solution.py`:
 
 ```json
-{
-  "test_name": "FT1",
-  "type": "variable",
-  "variable_name": "final_scores",
-  "description": "final_scores has the correct shape and values",
-  "expected": [7.93, 3.37, 4.33, 3.02],
-  "rtol": 0,
-  "atol": 0.01,
-  "score": 4,
-  "hint_wrong_size": "final_scores should be a NumPy array of shape (4,).",
-  "hint_tolerance": "Check your scoring formula."
-}
+"expected": 42.0
+```
+
+Strings and booleans work too -- set `rtol: 0, atol: 0` and put the value in `expected`:
+
+```json
+"expected": "hello world"
 ```
 
 ### Function test
+
+Calls a named function with given inputs and compares the return value against `solution.py`.
 
 ```json
 {
@@ -134,131 +136,68 @@ def test_A0(self):
   "type": "function",
   "function_name": "rk4_step",
   "inputs": [[-1, 4], 0.1],
-  "output_index": null,
   "description": "rk4_step([-1, 4], 0.1)",
-  "hint_wrong_size": "rk4_step should return a length-2 array/list [R_next, J_next].",
-  "hint_tolerance": "Check your RK4 weighted average of the four slopes.",
   "rtol": 1e-6,
   "atol": 1e-6,
-  "score": 3
+  "score": 3,
+  "hint_wrong_size": "rk4_step should return a length-2 array.",
+  "hint_tolerance": "Check your RK4 weighted average: (k1 + 2*k2 + 2*k3 + k4) / 6."
 }
 ```
 
-- `inputs`: positional arguments. JSON lists of numbers (including nested
-  lists) are converted to numpy arrays before the call; everything else
-  passes through as-is.
-- `output_index` (optional): index into the return value before comparing
-  (for functions returning multiple values).
-- The same `function_name` can appear in multiple test entries with
-  different `inputs` -- each is scored independently. Recommended for
-  covering edge cases (e.g. an equilibrium point) a single case wouldn't
-  catch.
+JSON lists of numbers are automatically converted to numpy arrays before the call. The same function can appear in multiple test entries with different inputs.
 
-### Top-level config
+### Using an inputs file (`$`-references)
 
-- `timeout` (seconds, default `10`) -- used only when validating
-  `solution.py` at build time
-- `requirements`: extra pip packages for `requirements.txt`
-  (`gradescope-utils` is always included automatically)
+In `test_inputs.py`:
 
-## How grading works
-
-Each generated test method:
-1. Tries `from student_submission import <name>` (variable) or the
-   function, catching any exception (syntax errors, missing names, etc.)
-   and failing with that exception's message plus the rubric's
-   `hint_wrong_size`.
-2. For function tests, calls the function with `inputs`, catching any
-   runtime error the same way.
-3. Compares the result to `solution.<name>` / `solution.<func>(*inputs)`
-   (or a hardcoded `"expected"`) via `compare()`: shape mismatch ->
-   `hint_wrong_size`, tolerance mismatch -> `hint_tolerance`
-   (`numpy.allclose(rtol, atol)`).
-
-Output shown to students is just a short message ("Expected a value of
-shape (2,), but got shape ()." / "Your value is not within the required
-tolerance.") plus your hint -- the actual expected/solution values are
-never shown (that would leak the answer), and `JSONTestRunner` runs with
-`buffer=False` so stray `print()`/warning output from solution or student
-code doesn't end up mixed into a test's reported output.
-
-Note: grading uses direct `import`, matching the standard
-gradescope-utils/unittest pattern -- there's no per-test subprocess
-timeout. An infinite loop in a student's top-level code would hang the
-whole `run_tests.py` until Gradescope's overall submission timeout kicks
-in.
-
-## Attempt limits
-
-Add to any test_suite entry:
-
-```json
-{
-  "test_name": "B1",
-  ...
-  "attempts": 2,
-  "allow_tries": false
-}
+```python
+import numpy as np
+y0 = np.array([-1.0, 4.0])
+dt = 0.1
 ```
 
-- `attempts`: max number of "attempted" submissions counted for this
-  question. "Attempted" = the variable/function was successfully defined,
-  regardless of correctness. If omitted/0, no limit applies (unchanged
-  behavior).
-- The reported score is the **max score across attempted submissions**,
-  capped at the first `attempts` of them. Once capped, it's locked --
-  later submissions can't raise or lower it.
-- `allow_tries: true` removes the cap: every attempted submission can
-  still raise the running max, with no limit on how many count.
-- The test's displayed name gets `(attempt: n/attempts)` appended
-  (capped at `attempts` unless `allow_tries`).
-
-### How this works
-
-Gradescope's `/autograder/submission_metadata.json` gives the autograder
-the *immediately preceding* submission's full `results.json` (under
-`previous_submissions[-1]["results"]`) -- not the full history. So instead
-of replaying history, each submission carries forward a small accumulator
-per tracked test, stored in that test's `extra_data`:
+In `rubric.json`, reference with `$`:
 
 ```json
-{"attempts_used": 2, "best_score": 3.0}
+"inputs": ["$y0", "$dt"]
 ```
 
-Each run reads the previous submission's accumulator (matched via a
-`@number(test_name)` tag on each generated test), updates it based on
-whether *this* submission attempted the question and what it scored, and
-writes the new accumulator back into `extra_data` for the next run.
+Also works for `expected`:
 
-This degrades gracefully: if `submission_metadata.json` is missing,
-empty, or has no matching `extra_data` (e.g. the very first submission, or
-a submission made before this feature existed), the accumulator starts at
-`{attempts_used: 0, best_score: 0.0}` -- students get a fresh budget
-rather than being penalized for missing history.
+```json
+"expected": "$my_expected_value"
+```
 
-One edge case: if a submission causes `run_tests.py` itself to crash
-before writing `results.json`, Gradescope records that submission with no
-`results` (`autograder_error: true`). The *next* submission's accumulator
-then resets to zero, since there's nothing to read forward from -- any
-attempts/best-score accumulated before that point are lost. This should be
-rare (it requires the autograder itself, not the student's code, to
-crash).
+### Attempt limits
 
-### Whole-assignment submission caps
+```json
+"attempts": 5,
+"allow_tries": false
+```
 
-For a cap on the whole assignment (every question, not per-question),
-Gradescope's Programming Assignment settings have a submission limit that
-Gradescope enforces itself, before `run_autograder` ever runs.
+`attempts` sets the maximum number of "attempted" submissions counted for this question (a submission counts as attempted if the variable or function was defined, regardless of correctness). The student's score is locked at the **best score across their attempts**.
 
-## Examples
+`allow_tries: true` removes the cap -- every submission updates the running best with no limit.
 
-- `autobuilder/examples/hw6/`: variable-style rubric (global script
-  variables `A0`-`A9`), compared against `solution.py`.
-- `autobuilder/examples/rk4/`: function-style rubric (`rk4_step(y0, dt)`
-  called with several different inputs), compared against `solution.py`.
-- `autobuilder/examples/food_truck/`: variable-style rubric with hardcoded
-  `"expected"` values (no dependence on `solution.py` for that entry).
+Once all attempt-limited questions in a rubric are exhausted (or full credit is earned), further submissions are blocked with a message and the previous results are carried forward unchanged.
 
-Each has a `solution.py` and a few example submissions (correct, wrong
-value, wrong/missing name). Run with `autobuilder grade rubric.json
-solution.py <submission>.py` from inside the example directory.
+Attempt tracking requires Gradescope's "Allow resubmission" setting to be enabled on the assignment.
+
+---
+
+## Student submission
+
+Students can submit **any `.py` file under any name**. If multiple `.py` files are submitted, the one that defines the most names the rubric is looking for is selected automatically.
+
+---
+
+## Worked example
+
+See `autobuilder/examples/total_test/` for a complete example covering strings, lists, numpy arrays, a function (RK4), and a maximisation problem -- with `solution.py`, `rubric.json`, `test_inputs.py`, and four example student submissions showing a progression from 0/20 to 20/20.
+
+```bash
+cd autobuilder/examples/total_test
+autobuilder grade rubric.json solution.py submission_04_correct.py --inputs test_inputs.py
+autobuilder build rubric.json solution.py --inputs test_inputs.py
+```
