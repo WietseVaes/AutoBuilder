@@ -40,18 +40,19 @@ from . import attempt_recorder
 def _previous_accumulator(metadata, test_name):
     try:
         previous_submissions = metadata.get("previous_submissions") or []
-        if not previous_submissions:
-            return {"attempts_used": 0, "best_score": 0.0}
-
-        last = previous_submissions[-1] or {}
-        results = last.get("results") or {}
-        for t in results.get("tests") or []:
-            if t.get("number") == test_name:
-                extra = t.get("extra_data") or {}
-                return {
-                    "attempts_used": int(extra.get("attempts_used", 0)),
-                    "best_score": float(extra.get("best_score", 0.0)),
-                }
+        # Gradescope provides ALL previous submissions, oldest first.
+        # Scan from newest to oldest to find the most recent one that
+        # has our extra_data accumulator for this test.
+        for sub in reversed(previous_submissions):
+            results = (sub or {}).get("results") or {}
+            for t in results.get("tests") or []:
+                if t.get("number") == test_name:
+                    extra = t.get("extra_data") or {}
+                    if "attempts_used" in extra:
+                        return {
+                            "attempts_used": int(extra["attempts_used"]),
+                            "best_score": float(extra.get("best_score", 0.0)),
+                        }
     except (AttributeError, TypeError, ValueError):
         pass
     return {"attempts_used": 0, "best_score": 0.0}
@@ -99,30 +100,19 @@ def make_post_processor(config, metadata):
             result["name"] = f"(attempt: {shown}/{attempts_limit}) {result['name']}"
             result["extra_data"] = {"attempts_used": attempts_used, "best_score": best_score}
 
-            # Hide the numeric score from Gradescope's per-test display
-            # (so students can't back-calculate the answer from the score).
-            # Instead put it in the output field as plain text.
-            locked_display = f"Locked score: {best_score:g}/{max_score:g}"
-            existing_output = result.get("output") or ""
-            result["output"] = (locked_display + "\n" + existing_output).strip()
-            result["score"] = 0
-            result["max_score"] = 0
+            # Add locked score info to the output text shown to students.
+            existing_output = (result.get("output") or "").strip()
+            locked_line = f"Locked score: {best_score:g}/{max_score:g}"
+            result["output"] = (locked_line + ("\n" + existing_output if existing_output else ""))
 
-        # Recompute overall score: for attempt-limited tests, the per-test
-        # score was zeroed out (to hide it from display), so accumulate
-        # the locked scores separately.
+        # Recompute overall score from locked values.
         total = 0.0
         for t_cfg in config.get("test_suite", []):
             test_name = t_cfg["test_name"]
             result = by_number.get(test_name)
             if result is None:
                 continue
-            if t_cfg.get("attempts"):
-                # use best_score from extra_data (we just wrote it above)
-                extra = result.get("extra_data") or {}
-                total += float(extra.get("best_score", 0.0))
-            else:
-                total += float(result.get("score", 0.0) or 0.0)
+            total += float(result.get("score", 0.0) or 0.0)
 
         if tests:
             json_data["score"] = total
