@@ -28,7 +28,7 @@ def _metadata_debug_summary(metadata):
     lines = ["submission_metadata.json keys: " + ", ".join(str(k) for k in metadata.keys())]
 
     prev = metadata.get("previous_submissions") or []
-    lines.append(f"previous_submissions count: {len(prev)}")
+    lines.append(f"previous_submissions count: {len(prev)} (newest first, [0] = most recent)")
 
     for i, sub in enumerate(prev):
         sub_keys = list((sub or {}).keys())

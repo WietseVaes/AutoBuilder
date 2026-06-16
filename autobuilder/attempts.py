@@ -40,19 +40,20 @@ from . import attempt_recorder
 def _previous_accumulator(metadata, test_name):
     try:
         previous_submissions = metadata.get("previous_submissions") or []
-        # Gradescope provides ALL previous submissions, oldest first.
-        # Scan from newest to oldest to find the most recent one that
-        # has our extra_data accumulator for this test.
-        for sub in reversed(previous_submissions):
-            results = (sub or {}).get("results") or {}
-            for t in results.get("tests") or []:
-                if t.get("number") == test_name:
-                    extra = t.get("extra_data") or {}
-                    if "attempts_used" in extra:
-                        return {
-                            "attempts_used": int(extra["attempts_used"]),
-                            "best_score": float(extra.get("best_score", 0.0)),
-                        }
+        # Gradescope orders previous_submissions newest-first.
+        # Index 0 is the immediately preceding submission -- exactly what we want.
+        if not previous_submissions:
+            return {"attempts_used": 0, "best_score": 0.0}
+        last = previous_submissions[0] or {}
+        results = last.get("results") or {}
+        for t in results.get("tests") or []:
+            if t.get("number") == test_name:
+                extra = t.get("extra_data") or {}
+                if "attempts_used" in extra:
+                    return {
+                        "attempts_used": int(extra["attempts_used"]),
+                        "best_score": float(extra.get("best_score", 0.0)),
+                    }
     except (AttributeError, TypeError, ValueError):
         pass
     return {"attempts_used": 0, "best_score": 0.0}
