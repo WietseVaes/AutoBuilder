@@ -31,16 +31,21 @@ VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py", "att
 
 
 def cmd_build(args):
-    out = build_zip(args.rubric, args.solution, args.output, args.timeout)
+    out = build_zip(args.rubric, args.solution, args.output, args.inputs, args.timeout)
     print(f"Wrote {out}")
     return 0
 
 
 def cmd_grade(args):
     from gradescope_utils.autograder_utils.json_test_runner import JSONTestRunner
+    from .build import _load_inputs_namespace, _resolve_inputs
 
     with open(args.rubric) as f:
         config = json.load(f)
+
+    if args.inputs:
+        inputs_ns = _load_inputs_namespace(args.inputs)
+        config["test_suite"] = _resolve_inputs(config["test_suite"], inputs_ns)
 
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["AUTOBUILDER_STATUS_PATH"] = os.path.join(tmp, "_attempt_status.json")
@@ -99,6 +104,7 @@ def main(argv=None):
     p_build = sub.add_parser("build", help="Build a Gradescope PyUnit autograder zip")
     p_build.add_argument("rubric", help="Path to rubric.json")
     p_build.add_argument("solution", help="Path to your correct solution .py script")
+    p_build.add_argument("--inputs", help="Path to a .py file defining test input variables")
     p_build.add_argument("--output", default="autograder.zip", help="Output zip path")
     p_build.add_argument("--timeout", type=float, help="Per-run timeout (seconds) for validating the solution")
     p_build.set_defaults(func=cmd_build)
@@ -107,6 +113,7 @@ def main(argv=None):
     p_grade.add_argument("rubric", help="Path to rubric.json")
     p_grade.add_argument("solution", help="Path to your correct solution .py script")
     p_grade.add_argument("submission", help="Path to a .py submission to grade")
+    p_grade.add_argument("--inputs", help="Path to a .py file defining test input variables")
     p_grade.add_argument("--timeout", type=float, default=10, help="Per-run timeout in seconds")
     p_grade.set_defaults(func=cmd_grade)
 

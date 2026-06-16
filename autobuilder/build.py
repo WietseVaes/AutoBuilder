@@ -1,8 +1,18 @@
 """
 Builds a Gradescope-ready PyUnit autograder zip from a rubric.json + a
-correct solution script.
+correct solution script, and optionally a test inputs file.
 
-    autobuilder build RUBRIC SOLUTION --output autograder.zip [--timeout 10]
+    autobuilder build RUBRIC SOLUTION [--inputs inputs.py] --output autograder.zip
+
+The optional --inputs file is a plain .py script that defines variables
+used as test inputs in the rubric. In rubric.json, reference them with a
+"$" prefix:
+
+    "inputs": ["$x1", 0.1]
+
+At build time the inputs file is executed and "$x1" is replaced with the
+actual value of x1 from that namespace. This lets you compute or load test
+inputs in Python rather than hardcoding them as JSON literals in the rubric.
 
 Output layout (matches the gradescope-utils PyUnit convention):
 
@@ -17,24 +27,12 @@ Output layout (matches the gradescope-utils PyUnit convention):
     |-- autobuilder/            (small vendored helper package)
     |   |-- __init__.py
     |   |-- comparator.py
-    |   `-- inputs.py
+    |   |-- inputs.py
+    |   |-- attempts.py
+    |   `-- attempt_recorder.py
     `-- tests/
         |-- __init__.py
         `-- test_rubric.py      (generated from rubric.json's test_suite)
-
-Each test_suite entry becomes one @weight-decorated unittest method that
-imports the relevant name from `student_submission` and compares it against
-either `solution.<name>` / `solution.<func>(*inputs)` or a hardcoded
-"expected" value.
-
-Students can submit any .py file under any name -- prepare_submission.py
-copies (or, if multiple .py files are submitted, concatenates) whatever
-was uploaded into student_submission.py before tests run.
-
-Before generating anything, the solution is validated (run once, in an
-isolated subprocess) to make sure it actually defines everything the rubric
-needs and doesn't crash -- this catches rubric/solution mismatches at build
-time rather than when a student submits.
 """
 import argparse
 import json
@@ -55,7 +53,52 @@ VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py", "att
 DEFAULT_TIMEOUT = 10
 
 
-def build(rubric_path, solution_path, output_path, timeout=None):
+def _load_inputs_namespace(inputs_file_path):
+    """Execute the inputs file and return its global namespace."""
+    ns = {}
+    with open(inputs_file_path) as f:
+        code = f.read()
+    exec(compile(code, inputs_file_path, "exec"), ns)
+    return ns
+
+
+def _resolve_inputs(test_suite, inputs_ns):
+    """Replace "$varname" strings in test_suite inputs/expected with the
+    actual values from the inputs namespace, converted to JSON-safe form
+    (numpy arrays become nested lists). Modifies test_suite in place."""
+    import copy
+    import numpy as np
+
+    def to_json_safe(val):
+        if isinstance(val, np.ndarray):
+            return val.tolist()
+        if isinstance(val, np.generic):
+            return val.item()
+        if isinstance(val, (list, tuple)):
+            return [to_json_safe(v) for v in val]
+        return val
+
+    def resolve(item):
+        if isinstance(item, str) and item.startswith("$"):
+            varname = item[1:]
+            if varname not in inputs_ns:
+                raise RuntimeError(
+                    f"Input '${varname}' not found in inputs file. "
+                    f"Available names: {sorted(k for k in inputs_ns if not k.startswith('_'))}"
+                )
+            return to_json_safe(inputs_ns[varname])
+        return item
+
+    test_suite = copy.deepcopy(test_suite)
+    for t in test_suite:
+        if "inputs" in t:
+            t["inputs"] = [resolve(item) for item in t["inputs"]]
+        if "expected" in t:
+            t["expected"] = resolve(t["expected"])
+    return test_suite
+
+
+def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=None):
     with open(rubric_path) as f:
         config = json.load(f)
 
@@ -63,8 +106,12 @@ def build(rubric_path, solution_path, output_path, timeout=None):
         config["timeout"] = timeout
     config.setdefault("timeout", DEFAULT_TIMEOUT)
 
-    # Validate the solution against the rubric before generating anything --
-    # raises with a clear message if it crashes or is missing variables/functions.
+    # Resolve $-prefixed inputs from the inputs file, if provided.
+    if inputs_file:
+        inputs_ns = _load_inputs_namespace(inputs_file)
+        config["test_suite"] = _resolve_inputs(config["test_suite"], inputs_ns)
+
+    # Validate the solution against the (resolved) rubric before generating anything.
     generate_reference_values(solution_path, config["test_suite"], timeout=config["timeout"])
 
     requirements = list(dict.fromkeys(["gradescope-utils>=0.3.1"] + config.get("requirements", [])))
@@ -126,11 +173,12 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Build a Gradescope PyUnit autograder zip.")
     parser.add_argument("rubric", help="Path to rubric.json")
     parser.add_argument("solution", help="Path to your correct solution .py script")
+    parser.add_argument("--inputs", help="Path to a .py file defining test input variables (referenced as $varname in rubric.json)")
     parser.add_argument("--output", default="autograder.zip", help="Output zip path")
     parser.add_argument("--timeout", type=float, help="Per-run timeout (seconds) for validating the solution")
     args = parser.parse_args(argv)
 
-    out = build(args.rubric, args.solution, args.output, args.timeout)
+    out = build(args.rubric, args.solution, args.output, args.inputs, args.timeout)
     print(f"Wrote {out}")
 
 

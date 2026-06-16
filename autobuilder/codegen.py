@@ -50,6 +50,22 @@ def _expected_expr(t):
     return expr
 
 
+def _to_json_safe(val):
+    """Convert a value to something safely repr()-able in generated Python code.
+    numpy arrays become nested lists; everything else passes through."""
+    try:
+        import numpy as np
+        if isinstance(val, np.ndarray):
+            return val.tolist()
+        if isinstance(val, np.generic):
+            return val.item()
+    except ImportError:
+        pass
+    if isinstance(val, (list, tuple)):
+        return [_to_json_safe(v) for v in val]
+    return val
+
+
 def _generate_test_method(t):
     name = t["test_name"]
     score = t.get("score", 0)
@@ -74,7 +90,7 @@ def _generate_test_method(t):
         lines.append(f"            _record_attempt({name!r}, False)")
         lines.append(
             f"            self.fail(f\"Variable {varname!r} could not be "
-            f"loaded ({{type(e).__name__}}: {{e}}).\\n\" + {hint_wrong_size!r})"
+            f"loaded ({{type(e).__name__}}: {{e}}).\\nHint: \" + {hint_wrong_size!r})"
         )
         lines.append("            return")
         lines.append("")
@@ -90,7 +106,7 @@ def _generate_test_method(t):
         lines.append(f"            _record_attempt({name!r}, False)")
         lines.append(
             f"            self.fail(f\"Function {fname!r} could not be "
-            f"loaded ({{type(e).__name__}}: {{e}}).\\n\" + {hint_wrong_size!r})"
+            f"loaded ({{type(e).__name__}}: {{e}}).\\nHint: \" + {hint_wrong_size!r})"
         )
         lines.append("            return")
         lines.append("")
@@ -111,9 +127,9 @@ def _generate_test_method(t):
     lines.append(f"        expected = {_expected_expr(t)}")
     lines.append(f"        status, message = compare(result, expected, {rtol!r}, {atol!r})")
     lines.append('        if status == "shape":')
-    lines.append(f"            self.fail(message + \"\\n\" + {hint_wrong_size!r})")
+    lines.append(f"            self.fail(message + \"\\nHint: \" + {hint_wrong_size!r})")
     lines.append('        elif status == "tolerance":')
-    lines.append(f"            self.fail(message + \"\\n\" + {hint_tolerance!r})")
+    lines.append(f"            self.fail(message + \"\\nHint: \" + {hint_tolerance!r})")
     lines.append("")
     return "\n".join(lines)
 
