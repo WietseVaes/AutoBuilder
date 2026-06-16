@@ -250,13 +250,15 @@ Attempt tracking requires Gradescope's "Allow resubmission" setting to be enable
 
 ## Student submission
 
-Students can submit **any `.py` file under any name**. If multiple `.py` files are submitted, the one that defines the most names the rubric is looking for is selected automatically.
+Students can submit **any `.py` or `.ipynb` file under any name**. If multiple files are submitted, the one that defines the most names the rubric is looking for is selected automatically.
+
+`.ipynb` (Jupyter notebook) submissions are converted to plain Python before grading: code cells are concatenated in order, markdown cells are skipped, and lines starting with `%` (magic commands like `%matplotlib inline`) or `!` (shell escapes like `!pip install ...`) are stripped, since they aren't valid outside Jupyter. No extra rubric configuration is needed -- notebook and script submissions are graded identically once converted.
 
 ---
 
 ## Worked example
 
-See `autobuilder/examples/total_test/` for a complete example covering strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem -- with `solution.py`, `rubric.json`, `test_inputs.py`, and four example student submissions showing a progression from 0/20 to 20/20. Every test entry in its `rubric.json` has all five hint types (`hint_not_defined`, `hint_wrong_type`, `hint_wrong_size`, `hint_nans`, `hint_tolerance`) filled in, plus two `_python`-suffixed overrides, as a reference for how to write them.
+See `autobuilder/examples/total_test/` for a complete example covering strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem -- with `solution.py`, `rubric.json`, `test_inputs.py`, and five example student submissions showing a progression from 0/20 to 20/20. `submission_05_correct_notebook.ipynb` is the same correct solution submitted as a Jupyter notebook (with markdown cells and a `%matplotlib`/`!pip install` thrown in), to demonstrate `.ipynb` support. Every test entry in its `rubric.json` has all five hint types (`hint_not_defined`, `hint_wrong_type`, `hint_wrong_size`, `hint_nans`, `hint_tolerance`) filled in, plus two `_python`-suffixed overrides, as a reference for how to write them.
 
 ```bash
 cd autobuilder/examples/total_test
