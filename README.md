@@ -16,17 +16,19 @@ To upgrade:
 pip install --upgrade git+https://github.com/WietseVaes/AutoBuilder.git
 ```
 
-### Adding `autobuilder` to PATH (Windows)
+### Adding `autobuilder` to PATH
 
-If `autobuilder` is not recognised as a command after install:
+After install, if `autobuilder` is not recognised as a command, Python's scripts directory isn't on your PATH.
 
-**Temporary (current terminal session only):**
+**Windows**
+
+Temporary (current terminal session only):
 
 ```powershell
 $env:PATH += ";C:\Users\<you>\AppData\Local\Python\pythoncore-3.14-64\Scripts"
 ```
 
-**Permanent (all future terminal sessions):**
+Permanent (all future terminal sessions):
 
 ```powershell
 [System.Environment]::SetEnvironmentVariable(
@@ -37,6 +39,38 @@ $env:PATH += ";C:\Users\<you>\AppData\Local\Python\pythoncore-3.14-64\Scripts"
 ```
 
 Then reopen your terminal.
+
+**macOS**
+
+Temporary:
+
+```bash
+export PATH="$PATH:$(python3 -m site --user-base)/bin"
+```
+
+Permanent -- add the same line to your shell config and reload:
+
+```bash
+echo 'export PATH="$PATH:$(python3 -m site --user-base)/bin"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+If you use bash instead of zsh, replace `~/.zshrc` with `~/.bash_profile`.
+
+**Linux**
+
+Temporary:
+
+```bash
+export PATH="$PATH:$HOME/.local/bin"
+```
+
+Permanent:
+
+```bash
+echo 'export PATH="$PATH:$HOME/.local/bin"' >> ~/.bashrc
+source ~/.bashrc
+```
 
 ---
 
@@ -222,7 +256,7 @@ Students can submit **any `.py` file under any name**. If multiple `.py` files a
 
 ## Worked example
 
-See `autobuilder/examples/total_test/` for a complete example covering strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem -- with `solution.py`, `rubric.json`, `test_inputs.py`, and four example student submissions showing a progression from 0/20 to 20/20.
+See `autobuilder/examples/total_test/` for a complete example covering strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem -- with `solution.py`, `rubric.json`, `test_inputs.py`, and four example student submissions showing a progression from 0/20 to 20/20. Every test entry in its `rubric.json` has all five hint types (`hint_not_defined`, `hint_wrong_type`, `hint_wrong_size`, `hint_nans`, `hint_tolerance`) filled in, plus two `_python`-suffixed overrides, as a reference for how to write them.
 
 ```bash
 cd autobuilder/examples/total_test

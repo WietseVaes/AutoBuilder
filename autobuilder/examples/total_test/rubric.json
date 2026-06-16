@@ -11,7 +11,10 @@
       "atol": 0,
       "score": 1,
       "attempts": 10,
+      "hint_not_defined": "Define a variable called method_name.",
+      "hint_wrong_type": "method_name should be a string.",
       "hint_wrong_size": "method_name should be a string.",
+      "hint_nans": "method_name should be a string, not NaN.",
       "hint_tolerance": "Check the exact spelling and hyphens -- comparison is case-sensitive."
     },
     {
@@ -24,7 +27,10 @@
       "atol": 0,
       "score": 1,
       "attempts": 10,
+      "hint_not_defined": "Define a variable called author.",
+      "hint_wrong_type": "author should be a string.",
       "hint_wrong_size": "author should be a string.",
+      "hint_nans": "author should be a string, not NaN.",
       "hint_tolerance": "Check spelling and capitalisation -- comparison is case-sensitive."
     },
     {
@@ -32,14 +38,16 @@
       "type": "variable",
       "variable_name": "primes",
       "description": "primes is the correct list of the first five prime numbers",
-      "inputs_ref": "$expected_primes",
       "expected": "$expected_primes",
       "rtol": 0,
       "atol": 0,
       "score": 2,
       "attempts": 10,
-      "hint_wrong_size": "primes should be a list or array of length 5.",
-      "hint_tolerance": "The first five primes are 2, 3, 5, 7, 11."
+      "hint_not_defined": "Define a variable called primes.",
+      "hint_wrong_type": "primes should be a list or numpy array of integers.",
+      "hint_wrong_size": "primes should have exactly 5 elements.",
+      "hint_nans": "primes should not contain NaN values.",
+      "hint_tolerance": "The first five primes are 2, 3, 5, 7, 11. Note: 1 is not a prime number."
     },
     {
       "test_name": "T4",
@@ -51,8 +59,11 @@
       "atol": 1e-6,
       "score": 2,
       "attempts": 10,
-      "hint_wrong_size": "weights should be a numpy array of shape (4,).",
-      "hint_tolerance": "weights should sum to 1 and have values [0.1, 0.4, 0.3, 0.2]."
+      "hint_not_defined": "Define a variable called weights.",
+      "hint_wrong_type": "weights should be a numpy array or list of floats.",
+      "hint_wrong_size": "weights should have shape (4,) -- one weight per category.",
+      "hint_nans": "weights contains NaN. Check that all entries are valid numbers.",
+      "hint_tolerance": "weights should sum to 1.0 and have values [0.1, 0.4, 0.3, 0.2]."
     },
     {
       "test_name": "T5",
@@ -64,21 +75,29 @@
       "atol": 1e-6,
       "score": 2,
       "attempts": 10,
-      "hint_wrong_size": "grid should be a numpy array of shape (5,).",
-      "hint_tolerance": "Use np.linspace(0, 1, 5) to generate five equally-spaced points from 0 to 1."
+      "hint_not_defined": "Define a variable called grid.",
+      "hint_wrong_type": "grid should be a numpy array.",
+      "hint_wrong_size": "grid should have shape (5,) -- five equally-spaced points.",
+      "hint_nans": "grid contains NaN. Use np.linspace which always produces valid numbers.",
+      "hint_tolerance": "Use np.linspace(0, 1, 5) to generate five equally-spaced points from 0 to 1.",
+      "hint_tolerance_python": "In Python: grid = np.linspace(0, 1, 5)"
     },
     {
       "test_name": "T6",
       "type": "variable",
       "variable_name": "dot_check",
-      "description": "dot_check is the correct dot product of weights and [1,2,3,4]",
+      "description": "dot_check is the correct dot product of weights and [1, 2, 3, 4]",
       "expected": "$expected_dot_check",
       "rtol": 1e-6,
       "atol": 1e-6,
       "score": 2,
       "attempts": 5,
-      "hint_wrong_size": "dot_check should be a scalar (float).",
-      "hint_tolerance": "Use np.dot(weights, np.array([1.0, 2.0, 3.0, 4.0]))."
+      "hint_not_defined": "Define a variable called dot_check.",
+      "hint_wrong_type": "dot_check should be a scalar (float or int).",
+      "hint_wrong_size": "dot_check should be a scalar, not an array.",
+      "hint_nans": "dot_check is NaN. Make sure weights contains no NaN before calling np.dot.",
+      "hint_tolerance": "Use np.dot(weights, np.array([1.0, 2.0, 3.0, 4.0])) and cast to float.",
+      "hint_tolerance_python": "In Python: dot_check = float(np.dot(weights, np.array([1.0, 2.0, 3.0, 4.0])))"
     },
     {
       "test_name": "T7",
@@ -90,8 +109,11 @@
       "atol": 1e-6,
       "score": 3,
       "attempts": 5,
+      "hint_not_defined": "Define a function called rk4_step(y0, dt).",
+      "hint_wrong_type": "rk4_step should return a numpy array or list, not a scalar.",
       "hint_wrong_size": "rk4_step should return a length-2 array [y0_next, y1_next].",
-      "hint_tolerance": "Check your RK4 weighted average: (k1 + 2*k2 + 2*k3 + k4) / 6."
+      "hint_nans": "rk4_step returned NaN. Check that your matrix A is defined correctly.",
+      "hint_tolerance": "Check your RK4 weighted average: y_next = y0 + dt/6 * (k1 + 2*k2 + 2*k3 + k4)."
     },
     {
       "test_name": "T8",
@@ -103,8 +125,11 @@
       "atol": 1e-6,
       "score": 3,
       "attempts": 5,
+      "hint_not_defined": "Define a function called rk4_step(y0, dt).",
+      "hint_wrong_type": "rk4_step should return a numpy array or list, not a scalar.",
       "hint_wrong_size": "rk4_step should return a length-2 array [y0_next, y1_next].",
-      "hint_tolerance": "Check your RK4 weighted average: (k1 + 2*k2 + 2*k3 + k4) / 6."
+      "hint_nans": "rk4_step returned NaN. Check that your matrix A is defined correctly.",
+      "hint_tolerance": "Check your RK4 weighted average: y_next = y0 + dt/6 * (k1 + 2*k2 + 2*k3 + k4)."
     },
     {
       "test_name": "T9",
@@ -115,8 +140,11 @@
       "atol": 1e-4,
       "score": 2,
       "attempts": 5,
-      "hint_wrong_size": "max_x1 should be a scalar (float).",
-      "hint_tolerance": "Use fmin with -f(x) to maximise. The answer should be close to 2.0."
+      "hint_not_defined": "Define a variable called max_x1.",
+      "hint_wrong_type": "max_x1 should be a scalar (float).",
+      "hint_wrong_size": "max_x1 should be a scalar, not an array. Index into fmin's result: fmin(...)[0].",
+      "hint_nans": "max_x1 is NaN. Check that fmin converged -- try a different starting point.",
+      "hint_tolerance": "Use fmin(lambda x: -f1(x), x0) to maximise. The answer should be close to 2.0."
     },
     {
       "test_name": "T10",
@@ -127,8 +155,11 @@
       "atol": 1e-4,
       "score": 2,
       "attempts": 5,
-      "hint_wrong_size": "max_x2 should be a scalar (float).",
-      "hint_tolerance": "Use fmin with -f(x) to maximise. The answer should be close to sqrt(1.5) ≈ 1.2247."
+      "hint_not_defined": "Define a variable called max_x2.",
+      "hint_wrong_type": "max_x2 should be a scalar (float).",
+      "hint_wrong_size": "max_x2 should be a scalar, not an array. Index into fmin's result: fmin(...)[0].",
+      "hint_nans": "max_x2 is NaN. Check that fmin converged -- try starting from x0 = 1.0.",
+      "hint_tolerance": "Use fmin(lambda x: -f2(x), 1.0) -- starting from 0 lands on a local maximum at x=0."
     }
   ]
 }
