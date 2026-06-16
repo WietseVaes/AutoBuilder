@@ -23,6 +23,7 @@ from gradescope_utils.autograder_utils.decorators import number, weight
 from autobuilder.comparator import compare
 from autobuilder.inputs import convert_inputs, convert_value
 from autobuilder.attempt_recorder import record as _record_attempt
+from autobuilder.plot_check import extract_axes_info, compare_axes_info
 
 import solution
 
@@ -45,6 +46,16 @@ def _hint(t, key, fallback_key=None):
     return val
 
 
+def _hint_suffix_expr(hint_repr, image_md_repr=None):
+    """Python expression for a '\\nHint: ...' suffix, optionally followed by
+    an embedded image's markdown on its own line. Empty string if no hint
+    and no image. Fully parenthesized so it's safe to concatenate with '+'."""
+    parts = f"((\"\\nHint: \" + {hint_repr}) if {hint_repr} else \"\")"
+    if image_md_repr:
+        parts = f"({parts} + (\"\\n\\n\" + {image_md_repr}))"
+    return parts
+
+
 def _expected_expr(t):
     if "expected" in t:
         return f"convert_value({t['expected']!r})"
@@ -58,28 +69,12 @@ def _expected_expr(t):
     return expr
 
 
-def _generate_test_method(t, index=0):
-    name         = t["test_name"]
-    score        = t.get("score", 0)
-    description  = t.get("description", name)
-    rtol         = t.get("rtol", 1e-6)
-    atol         = t.get("atol", 1e-6)
-    ttype        = t.get("type", "variable")
-
-    # Resolve all hint variants
-    h_not_defined = _hint(t, "hint_not_defined", "hint_wrong_size")
-    h_wrong_type  = _hint(t, "hint_wrong_type",  "hint_wrong_size")
-    h_wrong_size  = _hint(t, "hint_wrong_size")
-    h_nans        = _hint(t, "hint_nans",        "hint_tolerance")
-    h_tolerance   = _hint(t, "hint_tolerance")
-
-    method_name = f"test_{index:04d}_{name}"
-
+def _get_result_lines(t, name, h_not_defined):
+    """Lines that import the variable/function, record the attempt, call it
+    if needed, and bind the raw result to `result`. Shared by variable,
+    function, and plot test types."""
+    ttype = t.get("type", "variable")
     lines = []
-    lines.append(f"    @weight({score!r})")
-    lines.append(f"    @number({name!r})")
-    lines.append(f"    def {method_name}(self):")
-    lines.append(f"        {description!r}")
 
     if ttype == "variable":
         varname = t["variable_name"]
@@ -88,8 +83,8 @@ def _generate_test_method(t, index=0):
         lines.append("        except Exception as e:")
         lines.append(f"            _record_attempt({name!r}, False)")
         lines.append(
-            f"            self.fail(f\"Variable {varname!r} could not be loaded "
-            f"({{type(e).__name__}}: {{e}}).\\nHint: \" + {h_not_defined!r})"
+            f"            self.fail(f\"Variable {varname!r} is not defined.\" + "
+            f"{_hint_suffix_expr(repr(h_not_defined))})"
         )
         lines.append("            return")
         lines.append("")
@@ -103,8 +98,8 @@ def _generate_test_method(t, index=0):
         lines.append("        except Exception as e:")
         lines.append(f"            _record_attempt({name!r}, False)")
         lines.append(
-            f"            self.fail(f\"Function {fname!r} could not be loaded "
-            f"({{type(e).__name__}}: {{e}}).\\nHint: \" + {h_not_defined!r})"
+            f"            self.fail(f\"Function {fname!r} is not defined.\" + "
+            f"{_hint_suffix_expr(repr(h_not_defined))})"
         )
         lines.append("            return")
         lines.append("")
@@ -114,23 +109,121 @@ def _generate_test_method(t, index=0):
         lines.append(f"            result = {fname}(*inputs)")
         lines.append("        except Exception as e:")
         lines.append(
-            f"            self.fail(f\"Your code raised an error when calling "
-            f"{fname}(...): {{type(e).__name__}}: {{e}}\\nHint: \" + {h_not_defined!r})"
+            f"            self.fail(f\"Your code raised an error "
+            f"({{type(e).__name__}}: {{e}}) when calling {fname}.\" + "
+            f"{_hint_suffix_expr(repr(h_not_defined))})"
         )
         lines.append("            return")
         if t.get("output_index") is not None:
             lines.append(f"        result = result[{t['output_index']!r}]")
 
+    return lines
+
+
+def _generate_plot_test_method(t, index=0):
+    """Plot tests obtain a matplotlib Axes (directly, or via .axes on a
+    Figure) the same way variable/function tests obtain their result, then
+    compare structural properties (labels, limits, line/bar data) instead
+    of comparing the object itself."""
+    name        = t["test_name"]
+    score       = t.get("score", 0)
+    description = t.get("description", name)
+    plot_checks = t.get("plot_checks", ["xlabel", "ylabel", "title", "n_lines", "line_data"])
+
+    h_not_defined = _hint(t, "hint_not_defined", "hint_wrong_size")
+    h_wrong_type  = _hint(t, "hint_wrong_type",  "hint_wrong_size")
+    h_wrong_size  = _hint(t, "hint_wrong_size")
+    h_nans        = _hint(t, "hint_nans",        "hint_tolerance")
+    h_tolerance   = _hint(t, "hint_tolerance")
+    image_md      = t.get("hint_image_md")
+    image_md_repr = repr(image_md) if image_md else None
+
+    method_name = f"test_{index:04d}_{name}"
+
+    lines = []
+    lines.append(f"    @weight({score!r})")
+    lines.append(f"    @number({name!r})")
+    lines.append(f"    def {method_name}(self):")
+    lines.append(f"        {description!r}")
+    lines.extend(_get_result_lines(t, name, h_not_defined))
+    lines.append("")
+    lines.append("        ax = result.axes[0] if hasattr(result, 'axes') and not hasattr(result, 'get_xlabel') else result")
+    lines.append(f"        plot_checks = {plot_checks!r}")
+    lines.append("        try:")
+    lines.append("            student_info = extract_axes_info(ax, plot_checks)")
+    lines.append("        except AttributeError as e:")
+    lines.append(
+        f"            self.fail(f\"Expected a matplotlib Axes (or a Figure with one Axes), "
+        f"got {{type(ax).__name__}}: {{e}}.\" + {_hint_suffix_expr(repr(h_wrong_type), image_md_repr)})"
+    )
+    lines.append("            return")
+    lines.append("")
+    if "expected" in t:
+        lines.append(f"        ref_info = {t['expected']!r}")
+    else:
+        lines.append(f"        sol_ax_raw = {_solution_result_expr(t)}")
+        lines.append("        sol_ax = sol_ax_raw.axes[0] if hasattr(sol_ax_raw, 'axes') and not hasattr(sol_ax_raw, 'get_xlabel') else sol_ax_raw")
+        lines.append("        ref_info = extract_axes_info(sol_ax, plot_checks)")
+    lines.append("        rtol_, atol_ = " + repr(t.get("rtol", 1e-2)) + ", " + repr(t.get("atol", 1e-2)))
+    lines.append("        status, message = compare_axes_info(student_info, ref_info, rtol_, atol_)")
+    lines.append('        if status == "wrong_type":')
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_type), image_md_repr)})")
+    lines.append('        elif status == "wrong_size":')
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_size), image_md_repr)})")
+    lines.append('        elif status == "nans":')
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_nans), image_md_repr)})")
+    lines.append('        elif status == "tolerance":')
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_tolerance), image_md_repr)})")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _solution_result_expr(t):
+    ttype = t.get("type", "variable")
+    if ttype == "variable":
+        return f"solution.{t['variable_name']}"
+    expr = f"solution.{t['function_name']}(*inputs)"
+    return expr
+
+
+def _generate_test_method(t, index=0):
+    if t.get("type") == "plot":
+        return _generate_plot_test_method(t, index)
+
+    name         = t["test_name"]
+    score        = t.get("score", 0)
+    description  = t.get("description", name)
+    rtol         = t.get("rtol", 1e-6)
+    atol         = t.get("atol", 1e-6)
+
+    # Resolve all hint variants
+    h_not_defined = _hint(t, "hint_not_defined", "hint_wrong_size")
+    h_wrong_type  = _hint(t, "hint_wrong_type",  "hint_wrong_size")
+    h_wrong_size  = _hint(t, "hint_wrong_size")
+    h_nans        = _hint(t, "hint_nans",        "hint_tolerance")
+    h_tolerance   = _hint(t, "hint_tolerance")
+    image_md      = t.get("hint_image_md")
+    image_md_repr = repr(image_md) if image_md else None
+
+    method_name = f"test_{index:04d}_{name}"
+
+    lines = []
+    lines.append(f"    @weight({score!r})")
+    lines.append(f"    @number({name!r})")
+    lines.append(f"    def {method_name}(self):")
+    lines.append(f"        {description!r}")
+    lines.extend(_get_result_lines(t, name, h_not_defined))
+
     lines.append(f"        expected = {_expected_expr(t)}")
     lines.append(f"        status, message = compare(result, expected, {rtol!r}, {atol!r})")
     lines.append('        if status == "wrong_type":')
-    lines.append(f"            self.fail(message + \"\\nHint: \" + {h_wrong_type!r})")
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_type), image_md_repr)})")
     lines.append('        elif status == "wrong_size":')
-    lines.append(f"            self.fail(message + \"\\nHint: \" + {h_wrong_size!r})")
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_wrong_size), image_md_repr)})")
     lines.append('        elif status == "nans":')
-    lines.append(f"            self.fail(message + \"\\nHint: \" + {h_nans!r})")
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_nans), image_md_repr)})")
     lines.append('        elif status == "tolerance":')
-    lines.append(f"            self.fail(message + \"\\nHint: \" + {h_tolerance!r})")
+    lines.append(f"            self.fail(message + {_hint_suffix_expr(repr(h_tolerance), image_md_repr)})")
     lines.append("")
     return "\n".join(lines)
 

@@ -142,15 +142,16 @@ autobuilder grade rubric.json solution.py submission.py --inputs test_inputs.py
 
 ### Hint fields
 
-All hint fields are optional. When a test fails, the most specific matching hint is shown with a `Hint:` prefix. Any hint key can be suffixed with `_python` to apply only to Python submissions (e.g. `hint_wrong_size_python`), which overrides the plain version.
+All hint fields are optional. When a test fails, the message shown to students is always a short, generic description of what went wrong (e.g. `Variable 'A2' is not defined.` or `Your value is not within the required tolerance.`) -- it never reveals the expected/solution value. If a matching hint is set, it's appended on its own line, always prefixed with `Hint:`. Any hint key can be suffixed with `_python` to apply only to Python submissions (e.g. `hint_wrong_size_python`), which overrides the plain version.
 
 | Field | When it appears |
 |-------|-----------------|
 | `hint_not_defined` | Variable/function could not be imported (falls back to `hint_wrong_size`) |
 | `hint_wrong_type` | Value is the wrong Python type (falls back to `hint_wrong_size`) |
-| `hint_wrong_size` | Array has the wrong shape |
+| `hint_wrong_size` | Array/DataFrame/plot has the wrong shape |
 | `hint_nans` | Value contains NaN (falls back to `hint_tolerance`) |
 | `hint_tolerance` | Value is the right type and shape but numerically incorrect |
+| `hint_image` | Filename of an image (next to `rubric.json`) shown alongside any hint above |
 
 ### Variable test
 
@@ -206,6 +207,77 @@ Calls a named function with given inputs and compares the return value against `
 ```
 
 JSON lists of numbers are automatically converted to numpy arrays before the call. The same function can appear in multiple test entries with different inputs.
+
+### DataFrame test
+
+Works exactly like a variable or function test -- just have the result be a `pandas.DataFrame`. Column names, shape, dtypes, and values are all checked.
+
+```json
+{
+  "test_name": "D1",
+  "type": "function",
+  "function_name": "build_df",
+  "inputs": [5],
+  "description": "build_df(5) returns the correct DataFrame",
+  "rtol": 1e-6,
+  "atol": 1e-6,
+  "score": 4,
+  "hint_not_defined": "Define a function called build_df(n).",
+  "hint_wrong_type": "build_df should return a pandas DataFrame.",
+  "hint_wrong_size": "Check your column names and the number of rows.",
+  "hint_nans": "Your DataFrame contains NaN values.",
+  "hint_tolerance": "Check the values in each column."
+}
+```
+
+Column order and names must match exactly. Non-numeric columns are compared for exact equality; numeric columns use `rtol`/`atol` like everything else.
+
+### Plot test
+
+Verifies a matplotlib plot by inspecting the `Axes` object's properties (labels, axis limits, line/bar data) -- never by comparing rendered pixels, which is unreliable across machines (fonts, DPI, anti-aliasing all differ). Use `"type": "plot"` with a function that returns (or a variable that holds) a matplotlib `Axes` or `Figure`.
+
+```json
+{
+  "test_name": "P1",
+  "type": "plot",
+  "function_name": "make_plot",
+  "inputs": [1.0],
+  "description": "make_plot(1.0) produces the correct sine curve",
+  "plot_checks": ["xlabel", "ylabel", "n_lines", "line_data"],
+  "rtol": 1e-2,
+  "atol": 1e-2,
+  "score": 5,
+  "hint_not_defined": "Define a function called make_plot(scale).",
+  "hint_wrong_type": "make_plot should return a matplotlib Axes (or Figure).",
+  "hint_wrong_size": "Check that you plot exactly one line with the right number of points.",
+  "hint_tolerance": "Check the axis labels and the plotted x/y values."
+}
+```
+
+`plot_checks` is a list naming which properties to verify (default: `["xlabel", "ylabel", "title", "n_lines", "line_data"]`):
+
+| Check | What it verifies |
+|-------|-------------------|
+| `xlabel`, `ylabel`, `title` | Exact string match |
+| `xlim`, `ylim` | Axis limits, tolerance-based |
+| `n_lines` | Number of plotted lines |
+| `line_data` | Each line's x/y data, tolerance-based |
+| `n_bars` | Number of bars (bar charts) |
+| `bar_heights` | Bar heights, tolerance-based |
+| `legend_labels` | Exact list of legend label strings |
+
+`rtol`/`atol` for plot tests default to `1e-2` (looser than the `1e-6` default for numeric tests) since plotted data is usually less precision-sensitive.
+
+### Showing an image as a hint
+
+Add `"hint_image"` naming an image file placed next to `rubric.json`:
+
+```json
+"hint_tolerance": "Your plot should look like this.",
+"hint_image": "expected_plot.png"
+```
+
+At build time the image is read and embedded as a base64 data URI baked directly into the generated test code -- no filesystem access is needed at grading time, and nothing depends on a file path being reachable from the student's browser (which it never is, by design). Supported formats: `.png`, `.jpg`/`.jpeg`, `.gif`, `.svg`. The image is shown alongside the hint on any failure for that test.
 
 ### Using an inputs file (`$`-references)
 

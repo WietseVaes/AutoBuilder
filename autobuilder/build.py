@@ -48,7 +48,7 @@ PACKAGE_DIR = os.path.dirname(__file__)
 TEMPLATES_DIR = os.path.join(PACKAGE_DIR, "templates")
 
 # Files from this package vendored into the zip for the generated tests to import.
-VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py", "attempt_recorder.py"]
+VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py", "attempt_recorder.py", "plot_check.py"]
 
 DEFAULT_TIMEOUT = 10
 
@@ -98,6 +98,27 @@ def _resolve_inputs(test_suite, inputs_ns):
     return test_suite
 
 
+def _resolve_hint_images(test_suite, rubric_dir):
+    """For any test with a 'hint_image' field (an image filename next to
+    rubric.json), bake the image into a 'hint_image_md' markdown string
+    with the image embedded as base64. Leaves test_suite entries without
+    hint_image untouched."""
+    import copy
+    from .hint_image import image_to_markdown
+
+    test_suite = copy.deepcopy(test_suite)
+    for t in test_suite:
+        if "hint_image" in t:
+            image_path = os.path.join(rubric_dir, t["hint_image"])
+            if not os.path.exists(image_path):
+                raise RuntimeError(
+                    f"Test '{t.get('test_name')}': hint_image '{t['hint_image']}' "
+                    f"not found next to rubric.json (looked at {image_path})"
+                )
+            t["hint_image_md"] = image_to_markdown(image_path, alt_text=t.get("test_name", "hint"))
+    return test_suite
+
+
 def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=None):
     with open(rubric_path) as f:
         config = json.load(f)
@@ -110,6 +131,11 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
     if inputs_file:
         inputs_ns = _load_inputs_namespace(inputs_file)
         config["test_suite"] = _resolve_inputs(config["test_suite"], inputs_ns)
+
+    # Resolve hint_image references (image filenames) into baked-in base64
+    # markdown, so grading time never needs filesystem access to the image.
+    rubric_dir = os.path.dirname(os.path.abspath(rubric_path))
+    config["test_suite"] = _resolve_hint_images(config["test_suite"], rubric_dir)
 
     # Validate the solution against the (resolved) rubric before generating anything.
     generate_reference_values(solution_path, config["test_suite"], timeout=config["timeout"])
@@ -132,7 +158,6 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
             f.write(generate_test_file(config["test_suite"]))
 
         # extra_files (e.g. data files like .csv needed at grading time)
-        rubric_dir = os.path.dirname(os.path.abspath(rubric_path))
         for fname in config.get("extra_files", []):
             src = os.path.join(rubric_dir, fname)
             if not os.path.exists(src):

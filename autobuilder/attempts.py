@@ -68,6 +68,15 @@ def make_post_processor(config, metadata):
         tests = json_data.get("tests", [])
         by_number = {t.get("number"): t for t in tests}
 
+        # Any test whose rubric entry has a baked-in hint image needs
+        # output_format="md" so Gradescope renders the markdown image tag
+        # instead of showing it as literal text.
+        for t in config.get("test_suite", []):
+            if t.get("hint_image_md"):
+                result = by_number.get(t["test_name"])
+                if result is not None:
+                    result["output_format"] = "md"
+
         for t in config.get("test_suite", []):
             attempts_limit = t.get("attempts")
             if not attempts_limit:

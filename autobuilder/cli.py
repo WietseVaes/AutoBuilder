@@ -27,7 +27,7 @@ from .build import build as build_zip
 from .codegen import generate_test_file
 
 PACKAGE_DIR = os.path.dirname(__file__)
-VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py", "attempt_recorder.py"]
+VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py", "attempt_recorder.py", "plot_check.py"]
 
 
 def cmd_build(args):
@@ -38,7 +38,7 @@ def cmd_build(args):
 
 def cmd_grade(args):
     from gradescope_utils.autograder_utils.json_test_runner import JSONTestRunner
-    from .build import _load_inputs_namespace, _resolve_inputs
+    from .build import _load_inputs_namespace, _resolve_inputs, _resolve_hint_images
 
     with open(args.rubric) as f:
         config = json.load(f)
@@ -46,6 +46,9 @@ def cmd_grade(args):
     if args.inputs:
         inputs_ns = _load_inputs_namespace(args.inputs)
         config["test_suite"] = _resolve_inputs(config["test_suite"], inputs_ns)
+
+    rubric_dir = os.path.dirname(os.path.abspath(args.rubric))
+    config["test_suite"] = _resolve_hint_images(config["test_suite"], rubric_dir)
 
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["AUTOBUILDER_STATUS_PATH"] = os.path.join(tmp, "_attempt_status.json")
