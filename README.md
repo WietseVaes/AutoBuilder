@@ -268,6 +268,15 @@ Verifies a matplotlib plot by inspecting the `Axes` object's properties (labels,
 
 `rtol`/`atol` for plot tests default to `1e-2` (looser than the `1e-6` default for numeric tests) since plotted data is usually less precision-sensitive.
 
+When a plot test fails, every mismatched property is listed (not just the first one found), e.g.:
+
+```
+The following issues were found:
+  - 'xlabel' does not match.
+  - 'title' does not match.
+  - Legend labels do not match.
+```
+
 ### Showing an image as a hint
 
 Add `"hint_image"` naming an image file placed next to `rubric.json`:

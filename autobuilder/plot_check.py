@@ -53,50 +53,70 @@ def extract_axes_info(ax, checks):
 
 
 def compare_axes_info(student_info, ref_info, rtol=1e-2, atol=1e-2):
-    """Compare two extract_axes_info() dicts. Returns (status, message)
-    for the first mismatched key, same status vocabulary as comparator.compare."""
+    """Compare two extract_axes_info() dicts. Checks every requested
+    property and collects all mismatches, rather than stopping at the
+    first one, so students see everything that needs fixing in one pass.
+
+    Returns (status, message):
+        status is the most severe status across all mismatches, in
+        priority order wrong_type > wrong_size > nans > tolerance (so a
+        single failing-shape property doesn't get masked by an unrelated
+        tolerance mismatch using a "weaker" hint).
+        message lists every mismatched property, one per line.
+    """
+    severity = {"wrong_type": 3, "wrong_size": 2, "nans": 1, "tolerance": 0}
+    problems = []   # list of (status, description)
+
     for key, ref_val in ref_info.items():
         student_val = student_info.get(key)
 
         if key in ("xlabel", "ylabel", "title"):
             if student_val != ref_val:
-                return "tolerance", f"'{key}' does not match (expected non-empty: {bool(ref_val)})."
+                problems.append(("tolerance", f"'{key}' does not match."))
 
         elif key == "legend_labels":
             if student_val != ref_val:
-                return "tolerance", "Legend labels do not match."
+                problems.append(("tolerance", "Legend labels do not match."))
 
         elif key in ("n_lines", "n_bars"):
             if student_val != ref_val:
-                return "wrong_size", f"Expected {ref_val} for '{key}', but got {student_val}."
+                problems.append(("wrong_size", f"Expected {ref_val} for '{key}', but got {student_val}."))
 
         elif key in ("xlim", "ylim", "bar_heights"):
             try:
                 s = np.asarray(student_val, dtype=float)
                 r = np.asarray(ref_val, dtype=float)
             except (TypeError, ValueError):
-                return "wrong_type", f"'{key}' could not be read as numeric."
+                problems.append(("wrong_type", f"'{key}' could not be read as numeric."))
+                continue
             if s.shape != r.shape:
-                return "wrong_size", f"'{key}' has the wrong number of values."
-            if np.any(np.isnan(s)):
-                return "nans", f"'{key}' contains NaN."
-            if not np.allclose(s, r, rtol=rtol, atol=atol):
-                return "tolerance", f"'{key}' is not within the required tolerance."
+                problems.append(("wrong_size", f"'{key}' has the wrong number of values."))
+            elif np.any(np.isnan(s)):
+                problems.append(("nans", f"'{key}' contains NaN."))
+            elif not np.allclose(s, r, rtol=rtol, atol=atol):
+                problems.append(("tolerance", f"'{key}' is not within the required tolerance."))
 
         elif key == "line_data":
             if len(student_val or []) != len(ref_val):
-                return "wrong_size", "Number of plotted lines does not match."
+                problems.append(("wrong_size", "Number of plotted lines does not match."))
+                continue
             for i, (s_line, r_line) in enumerate(zip(student_val, ref_val)):
                 try:
                     sx, sy = np.asarray(s_line[0], dtype=float), np.asarray(s_line[1], dtype=float)
                     rx, ry = np.asarray(r_line[0], dtype=float), np.asarray(r_line[1], dtype=float)
                 except (TypeError, ValueError, IndexError):
-                    return "wrong_type", f"Line {i} data could not be read as numeric."
+                    problems.append(("wrong_type", f"Line {i} data could not be read as numeric."))
+                    continue
                 if sx.shape != rx.shape or sy.shape != ry.shape:
-                    return "wrong_size", f"Line {i} has the wrong number of data points."
-                if np.any(np.isnan(sx)) or np.any(np.isnan(sy)):
-                    return "nans", f"Line {i} contains NaN values."
-                if not (np.allclose(sx, rx, rtol=rtol, atol=atol) and np.allclose(sy, ry, rtol=rtol, atol=atol)):
-                    return "tolerance", f"Line {i}'s data does not match within tolerance."
+                    problems.append(("wrong_size", f"Line {i} has the wrong number of data points."))
+                elif np.any(np.isnan(sx)) or np.any(np.isnan(sy)):
+                    problems.append(("nans", f"Line {i} contains NaN values."))
+                elif not (np.allclose(sx, rx, rtol=rtol, atol=atol) and np.allclose(sy, ry, rtol=rtol, atol=atol)):
+                    problems.append(("tolerance", f"Line {i}'s data does not match within tolerance."))
 
-    return "pass", "OK"
+    if not problems:
+        return "pass", "OK"
+
+    worst_status = max(problems, key=lambda p: severity[p[0]])[0]
+    message = "The following issues were found:\n" + "\n".join(f"  - {desc}" for _, desc in problems)
+    return worst_status, message
