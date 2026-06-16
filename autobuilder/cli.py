@@ -77,20 +77,18 @@ def cmd_grade(args):
                 sys.modules.pop(mod, None)
 
     total = 0.0
-    max_total = 0.0
     for t in results.get("tests", []):
         score = t.get("score", 0.0)
         max_score = t.get("max_score", 0.0)
         total += score
-        max_total += max_score
         marker = "PASS" if t.get("status") == "passed" else "FAIL"
-        print(f"[{marker}] {t.get('name')} ({score:g}/{max_score:g})")
+        print(f"[{marker}] {t.get('name')}")
         output = t.get("output")
         if output:
             for line in output.rstrip().splitlines():
                 print(f"       {line}")
 
-    print(f"\nTotal: {total:g}/{max_total:g}")
+    print(f"\nTotal: {total:g}")
     return 0
 
 
