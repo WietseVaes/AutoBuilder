@@ -22,17 +22,30 @@ Output layout (matches the gradescope-utils PyUnit convention):
     |-- run_tests.py
     |-- setup.sh
     |-- prepare_submission.py
-    |-- solution.py            (your solution, shipped as-is)
+    |-- _runner.jl              (Julia driver, only meaningful if a .jl
+    |                            submission shows up; harmless otherwise)
+    |-- solution.py            (your solution, shipped as-is -- always Python)
     |-- rubric.json
+    |-- all_test_specs.json    (test specs for both adapters, generated)
     |-- autobuilder/            (small vendored helper package)
     |   |-- __init__.py
     |   |-- comparator.py
     |   |-- inputs.py
     |   |-- attempts.py
-    |   `-- attempt_recorder.py
+    |   |-- attempt_recorder.py
+    |   |-- plot_check.py
+    |   |-- python_adapter.py
+    |   |-- julia_adapter.py
+    |   |-- _runner.py
+    |   `-- student_dispatch.py
     `-- tests/
         |-- __init__.py
         `-- test_rubric.py      (generated from rubric.json's test_suite)
+
+Students may submit either a Python (.py/.ipynb) or Julia (.jl) file --
+prepare_submission.py auto-detects which, and student_dispatch.py routes
+each generated test to the matching adapter. The solution (solution.py)
+is always Python regardless of what students submit.
 """
 import argparse
 import json
@@ -48,7 +61,11 @@ PACKAGE_DIR = os.path.dirname(__file__)
 TEMPLATES_DIR = os.path.join(PACKAGE_DIR, "templates")
 
 # Files from this package vendored into the zip for the generated tests to import.
-VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py", "attempt_recorder.py", "plot_check.py"]
+VENDOR_FILES = [
+    "__init__.py", "comparator.py", "inputs.py", "attempts.py",
+    "attempt_recorder.py", "plot_check.py", "python_adapter.py",
+    "julia_adapter.py", "_runner.py", "student_dispatch.py", "notebook_convert.py",
+]
 
 DEFAULT_TIMEOUT = 10
 
@@ -119,6 +136,30 @@ def _resolve_hint_images(test_suite, rubric_dir):
     return test_suite
 
 
+def _build_all_specs(test_suite):
+    """The full per-test spec list passed to whichever language adapter
+    student_dispatch.py picks, covering every variable/function/plot test
+    in one go (so grading a submission needs only one subprocess call,
+    not one per test)."""
+    specs = []
+    for t in test_suite:
+        ttype = t.get("type", "variable")
+        if ttype == "plot":
+            # Plot tests fetch a value the same way function/variable tests
+            # do; the plot-specific comparison happens after, in Python.
+            ttype = "function" if "function_name" in t else "variable"
+        spec = {"name": t["test_name"], "type": ttype}
+        if ttype == "variable":
+            spec["variable_name"] = t["variable_name"]
+        else:
+            spec["function_name"] = t["function_name"]
+            spec["inputs"] = t.get("inputs", [])
+            if "output_index" in t:
+                spec["output_index"] = t["output_index"]
+        specs.append(spec)
+    return specs
+
+
 def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=None):
     with open(rubric_path) as f:
         config = json.load(f)
@@ -156,6 +197,16 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
             pass
         with open(os.path.join(tests_dir, "test_rubric.py"), "w") as f:
             f.write(generate_test_file(config["test_suite"]))
+
+        # all_test_specs.json: the full spec list student_dispatch.py needs
+        # to make a single adapter call cover every test in one subprocess,
+        # rather than one subprocess per test.
+        with open(os.path.join(staging, "all_test_specs.json"), "w") as f:
+            json.dump(_build_all_specs(config["test_suite"]), f)
+
+        # _runner.jl (only exercised if a .jl submission shows up; harmless
+        # to ship even for Python-only assignments)
+        shutil.copy(os.path.join(TEMPLATES_DIR, "_runner.jl"), os.path.join(staging, "_runner.jl"))
 
         # extra_files (e.g. data files like .csv needed at grading time)
         for fname in config.get("extra_files", []):

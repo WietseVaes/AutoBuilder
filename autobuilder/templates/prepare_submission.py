@@ -1,7 +1,9 @@
 """
-Copies the student's submitted file to student_submission.py so the
-generated tests can `from student_submission import ...` regardless of
-what the student named their file.
+Detects which language the student submitted in (Python or Julia, script
+or notebook), normalizes it to a single entry-point file, and writes a
+small marker file (student_language.json) recording the language and the
+normalized file's path -- read by autobuilder.student_dispatch at grading
+time to pick the right adapter.
 
 Run from /autograder/source after the submission has been copied in by
 run_autograder. After cp -r, /autograder/source contains both the
@@ -9,78 +11,55 @@ autograder's own files and whatever the student submitted, mixed together
 -- this picks out the student's file(s) by excluding the known autograder
 files.
 
-Notebook support: any submitted .ipynb file is converted to a .py file
-first (code cells concatenated in order, magics like %matplotlib and
-shell escapes like !pip install stripped, since they aren't valid plain
-Python). After that conversion, .ipynb-derived and native .py submissions
-are treated identically by the rest of this script.
+Detection and normalization, by extension:
+  .py     -> used directly
+  .ipynb  -> Jupyter notebook with a Python kernel: code cells
+             concatenated, magics/shell-escapes stripped, written to a
+             sibling .py file
+  .jl     -> used directly
+  (.ipynb with a Julia kernel is not yet supported -- flagged as a
+  limitation, see README)
 
-- Exactly one .py file (after notebook conversion) -> copied directly to
-  student_submission.py
-- Multiple .py files -> the one that defines the most names the rubric is
-  looking for (variable_name/function_name from test_suite) is picked and
-  copied. (Blindly concatenating multiple files is fragile -- if two files
-  define the same name, whichever comes last would silently win.) The
-  other submitted files are left in place too, so cross-file imports from
-  the chosen file still resolve.
-- No .py/.ipynb files submitted -> student_submission.py is left absent;
-  every generated test's `from student_submission import ...` then fails
-  with a clear ModuleNotFoundError, surfaced per-test with that test's hint.
+If multiple files of the SAME language are submitted, the one that
+defines the most names the rubric is looking for is selected (via AST
+inspection for Python; a lightweight regex-based scan for Julia, since
+Julia has no stdlib AST module readily available without invoking the
+julia executable itself). If files of BOTH languages are submitted
+together, Python is used (the more common / better-supported path);
+this is also flagged as a known limitation.
 """
 import ast
 import json
 import os
 import re
 import shutil
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from autobuilder.notebook_convert import notebook_to_python as _notebook_to_python
 
 SOURCE_DIR = os.path.dirname(os.path.abspath(__file__))
-TARGET = os.path.join(SOURCE_DIR, "student_submission.py")
+PY_TARGET = os.path.join(SOURCE_DIR, "student_submission.py")
+JL_TARGET = os.path.join(SOURCE_DIR, "student_submission.jl")
+MARKER_PATH = os.path.join(SOURCE_DIR, "student_language.json")
 
-# Files that are part of the autograder itself, not the student's work.
 INFRA_FILES = {
     "run_tests.py",
     "prepare_submission.py",
     "solution.py",
     "student_submission.py",
+    "student_submission.jl",
+    "student_language.json",
+    "all_test_specs.json",
     "setup.sh",
     "run_autograder",
     "requirements.txt",
     "rubric.json",
+    "_runner.jl",
 }
-
-# Lines that are valid in a Jupyter cell but not in plain Python.
-_MAGIC_OR_SHELL = re.compile(r"^\s*[%!]")
-
-
-def _notebook_to_python(ipynb_path):
-    """Extract and concatenate code cells from a .ipynb file into a single
-    Python source string. Magic commands (%...) and shell escapes (!...)
-    are stripped since they aren't valid outside Jupyter. Returns None if
-    the file can't be parsed as a notebook."""
-    try:
-        with open(ipynb_path, encoding="utf-8") as f:
-            notebook = json.load(f)
-    except (OSError, ValueError, UnicodeDecodeError):
-        return None
-
-    chunks = []
-    for cell in notebook.get("cells", []):
-        if cell.get("cell_type") != "code":
-            continue
-        source = cell.get("source", [])
-        if isinstance(source, str):
-            source = source.splitlines(keepends=True)
-        cleaned_lines = [line for line in source if not _MAGIC_OR_SHELL.match(line)]
-        if cleaned_lines:
-            chunks.append("".join(cleaned_lines))
-
-    return "\n\n".join(chunks) + "\n"
 
 
 def _convert_notebooks():
-    """Convert every .ipynb in SOURCE_DIR to a sibling .py file. Returns
-    the set of generated .py filenames so callers can include them as
-    submission candidates."""
     generated = set()
     for fname in os.listdir(SOURCE_DIR):
         if not fname.endswith(".ipynb"):
@@ -89,8 +68,6 @@ def _convert_notebooks():
         if code is None:
             continue
         py_name = fname[:-len(".ipynb")] + ".py"
-        # Don't clobber a same-named .py file that's part of the autograder
-        # or that the student also submitted directly.
         if py_name in INFRA_FILES:
             py_name = fname[:-len(".ipynb")] + "_notebook.py"
         with open(os.path.join(SOURCE_DIR, py_name), "w", encoding="utf-8") as f:
@@ -109,13 +86,12 @@ def _required_names(config):
     return names
 
 
-def _defined_names(path):
+def _defined_names_python(path):
     try:
         with open(path) as f:
             tree = ast.parse(f.read(), filename=path)
     except (SyntaxError, OSError, UnicodeDecodeError):
         return set()
-
     names = set()
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
@@ -129,30 +105,73 @@ def _defined_names(path):
     return names
 
 
-def main():
-    notebook_derived = _convert_notebooks()
+# Matches top-level `function foo(...)` / `foo(...) = ...` / `foo = ...`
+# definitions. Not a full Julia parser -- good enough to pick between
+# multiple submitted .jl files by counting which one defines more of the
+# names the rubric cares about.
+_JL_FUNC_DEF = re.compile(r"^\s*function\s+([A-Za-z_][A-Za-z0-9_!]*)\s*\(", re.MULTILINE)
+_JL_INLINE_FUNC_DEF = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_!]*)\s*\([^=]*\)\s*=", re.MULTILINE)
+_JL_ASSIGN = re.compile(r"^\s*([A-Za-z_][A-Za-z0-9_!]*)\s*=(?!=)", re.MULTILINE)
 
-    candidates = sorted(
+
+def _defined_names_julia(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            code = f.read()
+    except (OSError, UnicodeDecodeError):
+        return set()
+    names = set()
+    for pattern in (_JL_FUNC_DEF, _JL_INLINE_FUNC_DEF, _JL_ASSIGN):
+        names.update(pattern.findall(code))
+    return names
+
+
+def _pick_best(candidates, required, defined_names_fn):
+    if len(candidates) == 1:
+        return candidates[0]
+    return max(candidates, key=lambda f: len(defined_names_fn(os.path.join(SOURCE_DIR, f)) & required))
+
+
+def main():
+    _convert_notebooks()
+
+    py_candidates = sorted(
         f for f in os.listdir(SOURCE_DIR)
         if f.endswith(".py") and f not in INFRA_FILES and not f.startswith("test")
     )
-
-    if not candidates:
-        return
-
-    if len(candidates) == 1:
-        shutil.copy(os.path.join(SOURCE_DIR, candidates[0]), TARGET)
-        return
+    jl_candidates = sorted(
+        f for f in os.listdir(SOURCE_DIR)
+        if f.endswith(".jl") and f not in INFRA_FILES and not f.startswith("test")
+    )
 
     try:
         with open(os.path.join(SOURCE_DIR, "rubric.json")) as f:
             config = json.load(f)
     except (OSError, ValueError):
         config = {}
-
     required = _required_names(config)
-    best = max(candidates, key=lambda f: len(_defined_names(os.path.join(SOURCE_DIR, f)) & required))
-    shutil.copy(os.path.join(SOURCE_DIR, best), TARGET)
+
+    marker = {"language": None, "submission_path": None}
+
+    if py_candidates and jl_candidates:
+        # Both submitted -- known limitation, default to Python.
+        best = _pick_best(py_candidates, required, _defined_names_python)
+        shutil.copy(os.path.join(SOURCE_DIR, best), PY_TARGET)
+        marker = {"language": "python", "submission_path": PY_TARGET,
+                   "note": "Both .py and .jl files were submitted; graded as Python."}
+    elif py_candidates:
+        best = _pick_best(py_candidates, required, _defined_names_python)
+        shutil.copy(os.path.join(SOURCE_DIR, best), PY_TARGET)
+        marker = {"language": "python", "submission_path": PY_TARGET}
+    elif jl_candidates:
+        best = _pick_best(jl_candidates, required, _defined_names_julia)
+        shutil.copy(os.path.join(SOURCE_DIR, best), JL_TARGET)
+        marker = {"language": "julia", "submission_path": JL_TARGET}
+    # else: no submission found at all -- marker stays {"language": None, ...},
+    # student_dispatch.get_student_result will report every test as "missing".
+
+    with open(MARKER_PATH, "w") as f:
+        json.dump(marker, f)
 
 
 if __name__ == "__main__":

@@ -27,7 +27,11 @@ from .build import build as build_zip
 from .codegen import generate_test_file
 
 PACKAGE_DIR = os.path.dirname(__file__)
-VENDOR_FILES = ["__init__.py", "comparator.py", "inputs.py", "attempts.py", "attempt_recorder.py", "plot_check.py"]
+VENDOR_FILES = [
+    "__init__.py", "comparator.py", "inputs.py", "attempts.py",
+    "attempt_recorder.py", "plot_check.py", "python_adapter.py",
+    "julia_adapter.py", "_runner.py", "student_dispatch.py", "notebook_convert.py",
+]
 
 
 def cmd_build(args):
@@ -38,7 +42,7 @@ def cmd_build(args):
 
 def cmd_grade(args):
     from gradescope_utils.autograder_utils.json_test_runner import JSONTestRunner
-    from .build import _load_inputs_namespace, _resolve_inputs, _resolve_hint_images
+    from .build import _load_inputs_namespace, _resolve_inputs, _resolve_hint_images, _build_all_specs
 
     with open(args.rubric) as f:
         config = json.load(f)
@@ -50,15 +54,47 @@ def cmd_grade(args):
     rubric_dir = os.path.dirname(os.path.abspath(args.rubric))
     config["test_suite"] = _resolve_hint_images(config["test_suite"], rubric_dir)
 
+    submission_ext = os.path.splitext(args.submission)[1].lower()
+
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["AUTOBUILDER_STATUS_PATH"] = os.path.join(tmp, "_attempt_status.json")
+        os.environ["AUTOBUILDER_SOURCE_DIR"] = tmp
         pkg_dir = os.path.join(tmp, "autobuilder")
         os.makedirs(pkg_dir)
         for fname in VENDOR_FILES:
             shutil.copy(os.path.join(PACKAGE_DIR, fname), os.path.join(pkg_dir, fname))
 
         shutil.copy(args.solution, os.path.join(tmp, "solution.py"))
-        shutil.copy(args.submission, os.path.join(tmp, "student_submission.py"))
+
+        # Detect the submission's language by extension and write the
+        # marker + spec files student_dispatch.py needs -- this mirrors
+        # what prepare_submission.py does on Gradescope, condensed for a
+        # single local file.
+        if submission_ext == ".jl":
+            submission_target = os.path.join(tmp, "student_submission.jl")
+            shutil.copy(args.submission, submission_target)
+            language = "julia"
+            shutil.copy(os.path.join(os.path.dirname(__file__), "templates", "_runner.jl"),
+                        os.path.join(tmp, "_runner.jl"))
+        elif submission_ext == ".ipynb":
+            from .notebook_convert import notebook_to_python
+            code = notebook_to_python(args.submission)
+            if code is None:
+                print(f"Could not convert {args.submission} as a Python notebook.")
+                return 1
+            submission_target = os.path.join(tmp, "student_submission.py")
+            with open(submission_target, "w", encoding="utf-8") as f:
+                f.write(code)
+            language = "python"
+        else:
+            submission_target = os.path.join(tmp, "student_submission.py")
+            shutil.copy(args.submission, submission_target)
+            language = "python"
+
+        with open(os.path.join(tmp, "student_language.json"), "w") as f:
+            json.dump({"language": language, "submission_path": submission_target}, f)
+        with open(os.path.join(tmp, "all_test_specs.json"), "w") as f:
+            json.dump(_build_all_specs(config["test_suite"]), f)
 
         with open(os.path.join(tmp, "test_rubric.py"), "w") as f:
             f.write(generate_test_file(config["test_suite"]))
@@ -81,6 +117,7 @@ def cmd_grade(args):
             results = json.loads(stream.getvalue())
         finally:
             sys.path.remove(tmp)
+            os.environ.pop("AUTOBUILDER_SOURCE_DIR", None)
             for mod in ["test_rubric", "solution", "student_submission"]:
                 sys.modules.pop(mod, None)
 

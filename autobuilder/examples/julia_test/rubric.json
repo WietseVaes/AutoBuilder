@@ -1,0 +1,54 @@
+{
+  "requirements": ["numpy"],
+  "test_suite": [
+    {
+      "test_name": "JL1",
+      "type": "variable",
+      "variable_name": "greeting",
+      "description": "greeting is the correct string",
+      "rtol": 0,
+      "atol": 0,
+      "score": 1,
+      "hint_not_defined": "Define a variable called greeting.",
+      "hint_wrong_type": "greeting should be a string.",
+      "hint_tolerance": "Check the exact spelling: 'hello from autobuilder'."
+    },
+    {
+      "test_name": "JL2",
+      "type": "variable",
+      "variable_name": "scale_factor",
+      "description": "scale_factor is the correct scalar",
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "score": 1,
+      "hint_not_defined": "Define a variable called scale_factor.",
+      "hint_wrong_type": "scale_factor should be a number.",
+      "hint_tolerance": "scale_factor should be 2.5."
+    },
+    {
+      "test_name": "JL3",
+      "type": "variable",
+      "variable_name": "squares",
+      "description": "squares is [1, 4, 9, 16, 25]",
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "score": 1,
+      "hint_not_defined": "Define a variable called squares.",
+      "hint_wrong_type": "squares should be an array/vector of numbers.",
+      "hint_wrong_size": "squares should have 5 elements -- one per integer 1 through 5.",
+      "hint_tolerance": "squares[i] should be i^2."
+    },
+    {
+      "test_name": "JL4",
+      "type": "function",
+      "function_name": "add_one",
+      "inputs": [5.0],
+      "description": "add_one(5.0) returns 6.0",
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "score": 1,
+      "hint_not_defined": "Define a function called add_one(x).",
+      "hint_tolerance": "add_one should return x + 1."
+    }
+  ]
+}

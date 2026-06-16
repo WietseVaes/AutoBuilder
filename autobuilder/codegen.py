@@ -24,16 +24,13 @@ from autobuilder.comparator import compare
 from autobuilder.inputs import convert_inputs, convert_value
 from autobuilder.attempt_recorder import record as _record_attempt
 from autobuilder.plot_check import extract_axes_info, compare_axes_info
+from autobuilder.student_dispatch import get_student_result
 
 import solution
 
 
 class TestRubric(unittest.TestCase):
 '''
-
-
-def _is_python_test(t):
-    return t.get("language", "python") == "python"
 
 
 def _hint(t, key, fallback_key=None):
@@ -70,52 +67,64 @@ def _expected_expr(t):
 
 
 def _get_result_lines(t, name, h_not_defined):
-    """Lines that import the variable/function, record the attempt, call it
-    if needed, and bind the raw result to `result`. Shared by variable,
-    function, and plot test types."""
+    """Lines that fetch the student's value/function-call result via the
+    language dispatcher, record the attempt, and bind the raw result to
+    `result`. Shared by variable, function, and plot test types. Works
+    identically regardless of whether the student submitted Python or
+    Julia -- that's resolved at grading time by student_dispatch."""
     ttype = t.get("type", "variable")
     lines = []
 
     if ttype == "variable":
         varname = t["variable_name"]
-        lines.append("        try:")
-        lines.append(f"            from student_submission import {varname}")
-        lines.append("        except Exception as e:")
-        lines.append(f"            _record_attempt({name!r}, False)")
-        lines.append(
-            f"            self.fail(f\"Variable {varname!r} is not defined.\" + "
-            f"{_hint_suffix_expr(repr(h_not_defined))})"
-        )
-        lines.append("            return")
-        lines.append("")
-        lines.append(f"        _record_attempt({name!r}, True)")
-        lines.append(f"        result = {varname}")
+        what = f"Variable {varname!r}"
+        spec_repr = repr({"name": name, "type": "variable", "variable_name": varname})
     else:
-        fname       = t["function_name"]
+        fname = t["function_name"]
+        what = f"Function {fname!r}"
         inputs_repr = repr(t.get("inputs", []))
-        lines.append("        try:")
-        lines.append(f"            from student_submission import {fname}")
-        lines.append("        except Exception as e:")
-        lines.append(f"            _record_attempt({name!r}, False)")
-        lines.append(
-            f"            self.fail(f\"Function {fname!r} is not defined.\" + "
-            f"{_hint_suffix_expr(repr(h_not_defined))})"
-        )
-        lines.append("            return")
-        lines.append("")
-        lines.append(f"        _record_attempt({name!r}, True)")
-        lines.append(f"        inputs = convert_inputs({inputs_repr})")
-        lines.append("        try:")
-        lines.append(f"            result = {fname}(*inputs)")
-        lines.append("        except Exception as e:")
-        lines.append(
-            f"            self.fail(f\"Your code raised an error "
-            f"({{type(e).__name__}}: {{e}}) when calling {fname}.\" + "
-            f"{_hint_suffix_expr(repr(h_not_defined))})"
-        )
-        lines.append("            return")
+        spec_fields = {"name": name, "type": "function", "function_name": fname,
+                       "inputs": t.get("inputs", [])}
         if t.get("output_index") is not None:
-            lines.append(f"        result = result[{t['output_index']!r}]")
+            spec_fields["output_index"] = t["output_index"]
+        spec_repr = repr(spec_fields)
+
+    lines.append(f"        _outcome = get_student_result({spec_repr})")
+    lines.append('        if _outcome.get("missing"):')
+    lines.append(f"            _record_attempt({name!r}, False)")
+    lines.append(
+        f"            detail = _outcome.get('error_detail')"
+    )
+    lines.append(
+        f"            extra = f\" ({{detail.strip().splitlines()[-1]}})\" if detail else \"\""
+    )
+    lines.append(
+        f"            self.fail(f\"{what} is not defined.\" + extra + "
+        f"{_hint_suffix_expr(repr(h_not_defined))})"
+    )
+    lines.append("            return")
+    lines.append('        if "call_error" in _outcome:')
+    lines.append(f"            _record_attempt({name!r}, True)")
+
+    if ttype == "variable":
+        lines.append(
+            f"            self.fail(f\"Your code raised an error reading {varname!r}: "
+            f"{{_outcome['call_error'].strip().splitlines()[-1]}}\" + "
+            f"{_hint_suffix_expr(repr(h_not_defined))})"
+        )
+    else:
+        lines.append(
+            f"            self.fail(f\"Your code raised an error when calling {fname!r}: "
+            f"{{_outcome['call_error'].strip().splitlines()[-1]}}\" + "
+            f"{_hint_suffix_expr(repr(h_not_defined))})"
+        )
+    lines.append("            return")
+    lines.append("")
+    lines.append(f"        _record_attempt({name!r}, True)")
+    lines.append("        result = _outcome['value']")
+
+    if ttype == "function" and t.get("inputs"):
+        lines.append(f"        inputs = convert_inputs({repr(t.get('inputs', []))})")
 
     return lines
 
@@ -229,10 +238,7 @@ def _generate_test_method(t, index=0):
 
 
 def generate_test_file(test_suite):
-    methods = []
-    for i, t in enumerate(test_suite):
-        if _is_python_test(t):
-            methods.append(_generate_test_method(t, i))
+    methods = [_generate_test_method(t, i) for i, t in enumerate(test_suite)]
     if not methods:
         methods.append("    pass")
     return HEADER + "\n".join(methods) + "\n"
