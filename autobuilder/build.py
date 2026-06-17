@@ -22,7 +22,8 @@ Output layout (matches the gradescope-utils PyUnit convention):
     |-- run_tests.py
     |-- setup.sh
     |-- prepare_submission.py
-    |-- solution.py            (your solution, shipped as-is -- always Python)
+    |-- solution.py / .jl      (your solution; .jl solutions are not imported
+    |                            at grading time -- values baked at build time)
     |-- rubric.json
     |-- all_test_specs.json    (test specs for both adapters, generated)
     |-- autobuilder/            (small vendored helper package)
@@ -135,6 +136,17 @@ def _resolve_hint_images(test_suite, rubric_dir):
     return test_suite
 
 
+def _bake_expected_values(test_suite, ref_values):
+    """Set 'expected' on each test entry from the reference values dict.
+    Only fills entries that don't already have an explicit 'expected'.
+    Used when the solution is a .jl file: we can't import it as Python at
+    grading time, so expected values are embedded at build time instead."""
+    for t in test_suite:
+        name = t["test_name"]
+        if "expected" not in t and name in ref_values:
+            t["expected"] = ref_values[name]
+
+
 def _build_all_specs(test_suite):
     """The full per-test spec list passed to whichever language adapter
     student_dispatch.py picks, covering every variable/function/plot test
@@ -184,10 +196,23 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
     rubric_dir = os.path.dirname(os.path.abspath(rubric_path))
     config["test_suite"] = _resolve_hint_images(config["test_suite"], rubric_dir)
 
-    # Validate the solution against the (resolved) rubric before generating
-    # anything. The solution is always Python, regardless of the assignment
-    # language -- it's the instructor-controlled ground truth.
-    generate_reference_values(solution_path, config["test_suite"], timeout=config["timeout"])
+    is_julia_solution = solution_path.endswith(".jl")
+
+    if is_julia_solution:
+        plot_tests = [t["test_name"] for t in config["test_suite"] if t.get("type") == "plot"]
+        if plot_tests:
+            raise RuntimeError(
+                f"Plot tests are not supported with a Julia solution file "
+                f"({', '.join(plot_tests)}). Use 'expected' values in the rubric "
+                f"for plot tests, or use a Python solution."
+            )
+
+    # Validate the solution against the rubric and collect reference values.
+    # For Julia solutions the values are baked into the generated tests at build
+    # time (the generated test cannot import a .jl file as Python at grading time).
+    ref_values = generate_reference_values(solution_path, config["test_suite"], timeout=config["timeout"])
+    if is_julia_solution:
+        _bake_expected_values(config["test_suite"], ref_values)
 
     requirements = list(dict.fromkeys(["gradescope-utils>=0.3.1"] + config.get("requirements", [])))
 
@@ -204,7 +229,7 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
         with open(os.path.join(tests_dir, "__init__.py"), "w"):
             pass
         with open(os.path.join(tests_dir, "test_rubric.py"), "w") as f:
-            f.write(generate_test_file(config["test_suite"]))
+            f.write(generate_test_file(config["test_suite"], has_python_solution=not is_julia_solution))
 
         # all_test_specs.json: the full spec list student_dispatch.py needs
         # to make a single adapter call cover every test in one subprocess,
@@ -221,8 +246,10 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
                 )
             shutil.copy(src, os.path.join(staging, fname))
 
-        # solution.py
-        shutil.copy(solution_path, os.path.join(staging, "solution.py"))
+        # solution file (always shipped for transparency; .jl solutions are not
+        # imported at grading time — expected values are baked into test_rubric.py)
+        solution_dest = "solution.jl" if is_julia_solution else "solution.py"
+        shutil.copy(solution_path, os.path.join(staging, solution_dest))
 
         # rubric.json (with submission_filename / timeout merged in)
         with open(os.path.join(staging, "rubric.json"), "w") as f:

@@ -75,7 +75,7 @@ function main()
     mod = Module(:StudentSolution)
 
     try
-        Base.eval(mod, :(include($script_path)))
+        Base.include(mod, script_path)
     catch e
         msg_io = IOBuffer()
         showerror(msg_io, e)

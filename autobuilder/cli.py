@@ -23,7 +23,7 @@ import sys
 import tempfile
 import unittest
 
-from .build import build as build_zip
+from .build import build as build_zip, _bake_expected_values
 from .codegen import generate_test_file
 
 PACKAGE_DIR = os.path.dirname(__file__)
@@ -56,6 +56,12 @@ def cmd_grade(args):
 
     rubric_language = config.get("language", "python")
     submission_ext = os.path.splitext(args.submission)[1].lower()
+    is_julia_solution = args.solution.endswith(".jl")
+
+    if is_julia_solution:
+        from .reference import generate_reference_values
+        ref_values = generate_reference_values(args.solution, config["test_suite"], timeout=args.timeout)
+        _bake_expected_values(config["test_suite"], ref_values)
 
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["AUTOBUILDER_STATUS_PATH"] = os.path.join(tmp, "_attempt_status.json")
@@ -65,7 +71,8 @@ def cmd_grade(args):
         for fname in VENDOR_FILES:
             shutil.copy(os.path.join(PACKAGE_DIR, fname), os.path.join(pkg_dir, fname))
 
-        shutil.copy(args.solution, os.path.join(tmp, "solution.py"))
+        if not is_julia_solution:
+            shutil.copy(args.solution, os.path.join(tmp, "solution.py"))
 
         # This rubric is single-language (rubric.json's top-level
         # "language" field) -- the submission's extension must match.
@@ -105,7 +112,7 @@ def cmd_grade(args):
 
 
         with open(os.path.join(tmp, "test_rubric.py"), "w") as f:
-            f.write(generate_test_file(config["test_suite"]))
+            f.write(generate_test_file(config["test_suite"], has_python_solution=not is_julia_solution))
 
         sys.path.insert(0, tmp)
         try:
