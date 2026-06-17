@@ -166,23 +166,40 @@ function main()
 
     result["_debug_defined_names"] = defined_names(mod)
 
+    # Helper: create a zero-arg closure that references `sym_name` by name in
+    # `m`'s context, then call it via invokelatest.  This is the only reliable
+    # way to read globals defined by Base.include on Julia 1.11+, where those
+    # globals land in a new world age invisible to getfield/isdefined from the
+    # current call frame.
+    function _read_name(m, sym_name_str)
+        getter = Core.eval(m, Meta.parse("() -> " * sym_name_str))
+        return Base.invokelatest(getter)
+    end
+
     for t in tests
         name = t["name"]
-
         plot_checks = get(t, "plot_checks", nothing)
 
-        if t["type"] == "variable"
-            varname = Symbol(t["variable_name"])
-            # Use getfield directly inside a try-catch rather than isdefined +
-            # getfield.  In Julia 1.11+ isdefined() can incorrectly return false
-            # for top-level variables defined via Base.include into a bare Module(),
-            # even though getfield() succeeds.  Catching UndefVarError is equivalent
-            # and works across all 1.x versions.
+        # Helper to get the plot-extraction function if it was injected.
+        function _get_plot_fn()
             try
-                val = getfield(mod, varname)
-                if plot_checks !== nothing && isdefined(mod, :__autobuilder_extract_plot_info)
-                    result["values"][name] = Base.invokelatest(
-                        getfield(mod, :__autobuilder_extract_plot_info), val, plot_checks)
+                pfn = Core.eval(mod, Meta.parse("() -> __autobuilder_extract_plot_info"))
+                return Base.invokelatest(pfn)
+            catch
+                return nothing
+            end
+        end
+
+        if t["type"] == "variable"
+            try
+                val = _read_name(mod, t["variable_name"])
+                if plot_checks !== nothing
+                    plot_fn = _get_plot_fn()
+                    if plot_fn !== nothing
+                        result["values"][name] = Base.invokelatest(plot_fn, val, plot_checks)
+                    else
+                        result["values"][name] = to_jsonsafe(val)
+                    end
                 else
                     result["values"][name] = to_jsonsafe(val)
                 end
@@ -197,18 +214,37 @@ function main()
             end
 
         elseif t["type"] == "function"
-            fname = Symbol(t["function_name"])
-            if !isdefined(mod, fname) || !(getfield(mod, fname) isa Function)
+            f = nothing
+            try
+                f = _read_name(mod, t["function_name"])
+            catch e
+                if e isa UndefVarError
+                    push!(result["_missing"], name)
+                    continue
+                else
+                    io = IOBuffer()
+                    showerror(io, e)
+                    result["_call_errors"][name] = String(take!(io))
+                    continue
+                end
+            end
+            if !(f isa Function)
                 push!(result["_missing"], name)
                 continue
             end
-            f = getfield(mod, fname)
             inputs = get(t, "inputs", [])
             try
                 output = Base.invokelatest(f, inputs...)
-                if plot_checks !== nothing && isdefined(mod, :__autobuilder_extract_plot_info)
-                    result["values"][name] = Base.invokelatest(
-                        getfield(mod, :__autobuilder_extract_plot_info), output, plot_checks)
+                if plot_checks !== nothing
+                    plot_fn = _get_plot_fn()
+                    if plot_fn !== nothing
+                        result["values"][name] = Base.invokelatest(plot_fn, output, plot_checks)
+                    else
+                        if get(t, "output_index", nothing) !== nothing
+                            output = output[t["output_index"] + 1]
+                        end
+                        result["values"][name] = to_jsonsafe(output)
+                    end
                 else
                     if get(t, "output_index", nothing) !== nothing
                         # JSON test specs use 0-based indices (Python convention);
