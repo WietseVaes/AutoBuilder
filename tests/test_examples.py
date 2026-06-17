@@ -165,6 +165,52 @@ CASES = [
             "final_scores should be a NumPy array of shape (4,)",
         ],
     ),
+
+    # ── julia_test: missing function ───────────────────────────────────────
+    (
+        "julia_test", "solution.jl", "submission_03_missing_function.jl",
+        # greeting, scale_factor, squares all correct; add_one not defined.
+        3, 3, 1,
+        [
+            # codegen "Function 'add_one' is not defined." message:
+            "Function 'add_one' is not defined.",
+            # hint_not_defined from rubric:
+            "Define a function called add_one(x).",
+        ],
+    ),
+
+    # ── julia_test: wrong type ─────────────────────────────────────────────
+    (
+        "julia_test", "solution.jl", "submission_04_wrong_type.jl",
+        # greeting = 42 (Int64 → Python int) instead of a string; rest correct.
+        3, 3, 1,
+        [
+            # comparator wrong_type message for string-expected:
+            "Expected a string, but got type int.",
+            # hint_wrong_type from rubric:
+            "greeting should be a string.",
+        ],
+    ),
+
+    # ── function_unit_test: wrong size (scalar instead of array) ──────────
+    (
+        "function_unit_test", "solution.py", "submission_02_wrong_shape.py",
+        # rk4_step returns float(np.sum(result)) → shape () instead of (2,).
+        0, 0, 3,
+        [
+            # comparator wrong_size message:
+            "Expected shape (2,), but got shape ().",
+            # hint_wrong_size from rubric:
+            "rk4_step should return a length-2 array/list [R_next, J_next].",
+        ],
+    ),
+
+    # ── function_unit_test: notebook submission ────────────────────────────
+    (
+        "function_unit_test", "solution.py", "submission_05_correct.ipynb",
+        # Same correct RK4 implementation, submitted as a Jupyter notebook.
+        8, 3, 0, [],
+    ),
 ]
 
 
