@@ -32,6 +32,10 @@ def _restore_nans(obj):
 
 
 def run_julia_script(script_path, tests, timeout=10, julia_executable="julia"):
+    # Base.include in Julia resolves relative paths from _runner.jl's directory,
+    # not the CWD. Always pass an absolute path so it finds the right file.
+    script_path = os.path.abspath(script_path)
+
     fd, output_path = tempfile.mkstemp(suffix=".json")
     os.close(fd)
     os.remove(output_path)  # _runner.jl creates this; absence afterward signals a hard crash
