@@ -50,6 +50,7 @@ INFRA_FILES = {
     "run_tests.py",
     "prepare_submission.py",
     "solution.py",
+    "solution.jl",
     "student_submission.py",
     "student_submission.jl",
     "student_language.json",
