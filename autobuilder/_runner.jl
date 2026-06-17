@@ -163,7 +163,10 @@ function main()
             varname = Symbol(t["variable_name"])
             if isdefined(mod, varname)
                 try
-                    result["values"][name] = to_jsonsafe(getfield(mod, varname))
+                    val = getfield(mod, varname)
+                    plot_checks = get(t, "plot_checks", nothing)
+                    result["values"][name] = plot_checks !== nothing ?
+                        _extract_plot_info(val, plot_checks) : to_jsonsafe(val)
                 catch e
                     io = IOBuffer()
                     showerror(io, e)
@@ -183,12 +186,19 @@ function main()
             inputs = get(t, "inputs", [])
             try
                 output = Base.invokelatest(f, inputs...)
-                if get(t, "output_index", nothing) !== nothing
-                    # JSON test specs use 0-based indices (Python convention);
-                    # Julia is 1-based.
-                    output = output[t["output_index"] + 1]
+                plot_checks = get(t, "plot_checks", nothing)
+                if plot_checks !== nothing
+                    # Plot test: extract a plain dict from the Plots.jl object
+                    # instead of serializing it raw (JSON.jl cannot traverse it).
+                    result["values"][name] = _extract_plot_info(output, plot_checks)
+                else
+                    if get(t, "output_index", nothing) !== nothing
+                        # JSON test specs use 0-based indices (Python convention);
+                        # Julia is 1-based.
+                        output = output[t["output_index"] + 1]
+                    end
+                    result["values"][name] = to_jsonsafe(output)
                 end
-                result["values"][name] = to_jsonsafe(output)
             catch e
                 io = IOBuffer()
                 showerror(io, e)
