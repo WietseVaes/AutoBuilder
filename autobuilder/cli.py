@@ -30,7 +30,7 @@ PACKAGE_DIR = os.path.dirname(__file__)
 VENDOR_FILES = [
     "__init__.py", "comparator.py", "inputs.py", "attempts.py",
     "attempt_recorder.py", "plot_check.py", "python_adapter.py",
-    "julia_adapter.py", "_runner.py", "student_dispatch.py", "notebook_convert.py",
+    "_runner.py", "julia_adapter.py", "_runner.jl", "student_dispatch.py", "notebook_convert.py",
 ]
 
 
@@ -78,8 +78,6 @@ def cmd_grade(args):
                 return 1
             submission_target = os.path.join(tmp, "student_submission.jl")
             shutil.copy(args.submission, submission_target)
-            shutil.copy(os.path.join(os.path.dirname(__file__), "templates", "_runner.jl"),
-                        os.path.join(tmp, "_runner.jl"))
         else:
             if submission_ext == ".ipynb":
                 from .notebook_convert import notebook_to_python

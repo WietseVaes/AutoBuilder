@@ -22,8 +22,6 @@ Output layout (matches the gradescope-utils PyUnit convention):
     |-- run_tests.py
     |-- setup.sh
     |-- prepare_submission.py
-    |-- _runner.jl              (Julia driver, only meaningful if a .jl
-    |                            submission shows up; harmless otherwise)
     |-- solution.py            (your solution, shipped as-is -- always Python)
     |-- rubric.json
     |-- all_test_specs.json    (test specs for both adapters, generated)
@@ -35,8 +33,9 @@ Output layout (matches the gradescope-utils PyUnit convention):
     |   |-- attempt_recorder.py
     |   |-- plot_check.py
     |   |-- python_adapter.py
-    |   |-- julia_adapter.py
     |   |-- _runner.py
+    |   |-- julia_adapter.py
+    |   |-- _runner.jl
     |   `-- student_dispatch.py
     `-- tests/
         |-- __init__.py
@@ -64,7 +63,7 @@ TEMPLATES_DIR = os.path.join(PACKAGE_DIR, "templates")
 VENDOR_FILES = [
     "__init__.py", "comparator.py", "inputs.py", "attempts.py",
     "attempt_recorder.py", "plot_check.py", "python_adapter.py",
-    "julia_adapter.py", "_runner.py", "student_dispatch.py", "notebook_convert.py",
+    "_runner.py", "julia_adapter.py", "_runner.jl", "student_dispatch.py", "notebook_convert.py",
 ]
 
 DEFAULT_TIMEOUT = 10
@@ -212,10 +211,6 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
         # rather than one subprocess per test.
         with open(os.path.join(staging, "all_test_specs.json"), "w") as f:
             json.dump(_build_all_specs(config["test_suite"]), f)
-
-        # _runner.jl (only exercised if a .jl submission shows up; harmless
-        # to ship even for Python-only assignments)
-        shutil.copy(os.path.join(TEMPLATES_DIR, "_runner.jl"), os.path.join(staging, "_runner.jl"))
 
         # extra_files (e.g. data files like .csv needed at grading time)
         for fname in config.get("extra_files", []):
