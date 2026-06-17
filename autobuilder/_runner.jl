@@ -27,66 +27,6 @@
 import JSON
 
 # ---------------------------------------------------------------------------
-# Plot extraction (Plots.jl)
-# ---------------------------------------------------------------------------
-# Works via duck-typing: accesses .subplots / .series_list without importing
-# Plots, so _runner.jl itself doesn't need `using Plots` -- the student's
-# script already loaded it into their module.
-
-function _safe_collect(v)
-    v === nothing && return Float64[]
-    try; return collect(Float64, v); catch; end
-    try; return collect(v); catch; end
-    return []
-end
-
-function _extract_plot_info(p, checks)
-    info = Dict{String, Any}()
-    sp = p.subplots[1]
-
-    _line_types = Set([:path, :line, :steppre, :steppost, :stepmid])
-    line_series = filter(s -> get(s.plotattributes, :seriestype, :path) in _line_types, p.series_list)
-    bar_series  = filter(s -> get(s.plotattributes, :seriestype, :path) == :bar,        p.series_list)
-
-    for check in checks
-        if check == "xlabel"
-            info["xlabel"] = string(sp[:xaxis][:guide])
-        elseif check == "ylabel"
-            info["ylabel"] = string(sp[:yaxis][:guide])
-        elseif check == "title"
-            info["title"] = string(sp[:title])
-        elseif check == "xlim"
-            lims = sp[:xaxis][:lims]
-            info["xlim"] = lims == :auto ? nothing : [Float64(lims[1]), Float64(lims[2])]
-        elseif check == "ylim"
-            lims = sp[:yaxis][:lims]
-            info["ylim"] = lims == :auto ? nothing : [Float64(lims[1]), Float64(lims[2])]
-        elseif check == "n_lines"
-            info["n_lines"] = length(line_series)
-        elseif check == "line_data"
-            info["line_data"] = [
-                let x = s[:x], y = s[:y]
-                    x_vals = x === nothing ? collect(eachindex(y)) : _safe_collect(x)
-                    [x_vals, _safe_collect(y)]
-                end
-                for s in line_series
-            ]
-        elseif check == "n_bars"
-            info["n_bars"] = isempty(bar_series) ? 0 : sum(length(s[:y]) for s in bar_series)
-        elseif check == "bar_heights"
-            info["bar_heights"] = isempty(bar_series) ? Float64[] :
-                vcat([_safe_collect(s[:y]) for s in bar_series]...)
-        elseif check == "legend_labels"
-            info["legend_labels"] = [
-                string(s[:label]) for s in p.series_list
-                if s[:label] !== false && string(s[:label]) != ""
-            ]
-        end
-    end
-    return info
-end
-
-# ---------------------------------------------------------------------------
 
 function to_jsonsafe(x)
     if x isa AbstractArray
@@ -154,19 +94,92 @@ function main()
         return
     end
 
+    # If any test needs plot info, define the extraction helper inside the
+    # student module via Base.eval.  This runs AFTER Base.include has loaded
+    # Plots (advancing the world counter to W2), so the function -- including
+    # all its nested closures -- is compiled in W2 and can call Plots methods
+    # without world-age errors.
+    #
+    # A function defined at _runner.jl parse time (W1) cannot call W2 Plots
+    # methods even via invokelatest, because nested closures (e.g. the
+    # `s -> get(s.plotattributes, ...)` lambdas) retain their W1 compile
+    # context and fail when they try to dispatch W2-only methods.
+    if any(t -> haskey(t, "plot_checks"), tests)
+        try
+            Base.eval(mod, quote
+                function __autobuilder_extract_plot_info(p, checks)
+                    function _sc(v)
+                        v === nothing && return Float64[]
+                        try; return collect(Float64, v); catch; end
+                        try; return collect(v); catch; end
+                        return []
+                    end
+                    info = Dict{String,Any}()
+                    sp = p.subplots[1]
+                    _line_types = Set([:path, :line, :steppre, :steppost, :stepmid])
+                    line_series = filter(s -> get(s.plotattributes, :seriestype, :path) in _line_types, p.series_list)
+                    bar_series  = filter(s -> get(s.plotattributes, :seriestype, :path) == :bar, p.series_list)
+                    for check in checks
+                        if check == "xlabel"
+                            info["xlabel"] = string(sp[:xaxis][:guide])
+                        elseif check == "ylabel"
+                            info["ylabel"] = string(sp[:yaxis][:guide])
+                        elseif check == "title"
+                            info["title"] = string(sp[:title])
+                        elseif check == "xlim"
+                            lims = sp[:xaxis][:lims]
+                            info["xlim"] = lims == :auto ? nothing : [Float64(lims[1]), Float64(lims[2])]
+                        elseif check == "ylim"
+                            lims = sp[:yaxis][:lims]
+                            info["ylim"] = lims == :auto ? nothing : [Float64(lims[1]), Float64(lims[2])]
+                        elseif check == "n_lines"
+                            info["n_lines"] = length(line_series)
+                        elseif check == "line_data"
+                            info["line_data"] = [
+                                let x = s[:x], y = s[:y]
+                                    x_vals = x === nothing ? collect(eachindex(y)) : _sc(x)
+                                    [x_vals, _sc(y)]
+                                end
+                                for s in line_series
+                            ]
+                        elseif check == "n_bars"
+                            info["n_bars"] = isempty(bar_series) ? 0 : sum(length(s[:y]) for s in bar_series)
+                        elseif check == "bar_heights"
+                            info["bar_heights"] = isempty(bar_series) ? Float64[] :
+                                vcat([_sc(s[:y]) for s in bar_series]...)
+                        elseif check == "legend_labels"
+                            info["legend_labels"] = [
+                                string(s[:label]) for s in p.series_list
+                                if s[:label] !== false && string(s[:label]) != ""
+                            ]
+                        end
+                    end
+                    return info
+                end
+            end)
+        catch
+            # Plots not loaded in student's script; plot tests will error gracefully.
+        end
+    end
+
     result["_debug_defined_names"] = defined_names(mod)
 
     for t in tests
         name = t["name"]
+
+        plot_checks = get(t, "plot_checks", nothing)
 
         if t["type"] == "variable"
             varname = Symbol(t["variable_name"])
             if isdefined(mod, varname)
                 try
                     val = getfield(mod, varname)
-                    plot_checks = get(t, "plot_checks", nothing)
-                    result["values"][name] = plot_checks !== nothing ?
-                        Base.invokelatest(_extract_plot_info, val, plot_checks) : to_jsonsafe(val)
+                    if plot_checks !== nothing && isdefined(mod, :__autobuilder_extract_plot_info)
+                        result["values"][name] = Base.invokelatest(
+                            getfield(mod, :__autobuilder_extract_plot_info), val, plot_checks)
+                    else
+                        result["values"][name] = to_jsonsafe(val)
+                    end
                 catch e
                     io = IOBuffer()
                     showerror(io, e)
@@ -186,13 +199,9 @@ function main()
             inputs = get(t, "inputs", [])
             try
                 output = Base.invokelatest(f, inputs...)
-                plot_checks = get(t, "plot_checks", nothing)
-                if plot_checks !== nothing
-                    # Plot test: extract a plain dict from the Plots.jl object.
-                    # invokelatest is required: Plots methods are defined in a newer
-                    # world than _runner.jl's main() (loaded via `using Plots` in the
-                    # student script), so a direct call would be a world-age error.
-                    result["values"][name] = Base.invokelatest(_extract_plot_info, output, plot_checks)
+                if plot_checks !== nothing && isdefined(mod, :__autobuilder_extract_plot_info)
+                    result["values"][name] = Base.invokelatest(
+                        getfield(mod, :__autobuilder_extract_plot_info), output, plot_checks)
                 else
                     if get(t, "output_index", nothing) !== nothing
                         # JSON test specs use 0-based indices (Python convention);
