@@ -151,13 +151,19 @@ def _build_all_specs(test_suite):
     """The full per-test spec list passed to whichever language adapter
     student_dispatch.py picks, covering every variable/function/plot test
     in one go (so grading a submission needs only one subprocess call,
-    not one per test)."""
+    not one per test).
+
+    For plot tests, plot_checks is included in the spec so _runner.jl
+    knows to call _extract_plot_info and return a plain dict instead of
+    the raw plot object (which can't cross the JSON boundary). The Python
+    adapter ignores plot_checks and returns the matplotlib object as-is;
+    the generated test code then calls extract_axes_info on the Python side.
+    """
     specs = []
     for t in test_suite:
         ttype = t.get("type", "variable")
-        if ttype == "plot":
-            # Plot tests fetch a value the same way function/variable tests
-            # do; the plot-specific comparison happens after, in Python.
+        is_plot = (ttype == "plot")
+        if is_plot:
             ttype = "function" if "function_name" in t else "variable"
         spec = {"name": t["test_name"], "type": ttype}
         if ttype == "variable":
@@ -167,6 +173,8 @@ def _build_all_specs(test_suite):
             spec["inputs"] = t.get("inputs", [])
             if "output_index" in t:
                 spec["output_index"] = t["output_index"]
+        if is_plot:
+            spec["plot_checks"] = t.get("plot_checks", ["xlabel", "ylabel", "title", "n_lines", "line_data"])
         specs.append(spec)
     return specs
 
@@ -197,15 +205,6 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
     config["test_suite"] = _resolve_hint_images(config["test_suite"], rubric_dir)
 
     is_julia_solution = solution_path.endswith(".jl")
-
-    if is_julia_solution:
-        plot_tests = [t["test_name"] for t in config["test_suite"] if t.get("type") == "plot"]
-        if plot_tests:
-            raise RuntimeError(
-                f"Plot tests are not supported with a Julia solution file "
-                f"({', '.join(plot_tests)}). Use 'expected' values in the rubric "
-                f"for plot tests, or use a Python solution."
-            )
 
     # Validate the solution against the rubric and collect reference values.
     # For Julia solutions the values are baked into the generated tests at build
@@ -272,6 +271,8 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
         if language == "julia":
             with open(os.path.join(TEMPLATES_DIR, "setup_julia_block.sh")) as f:
                 julia_block = f.read()
+            has_plot_tests = any(t.get("type") == "plot" for t in config["test_suite"])
+            julia_block = julia_block.replace("{JULIA_PLOTS}", ', "Plots"' if has_plot_tests else "")
         else:
             julia_block = ""
         setup_path = os.path.join(staging, "setup.sh")

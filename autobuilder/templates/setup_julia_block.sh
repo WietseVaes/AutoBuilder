@@ -6,4 +6,4 @@ if ! command -v julia >/dev/null 2>&1; then
     ln -sf "/opt/julia-${JULIA_VERSION}/bin/julia" /usr/local/bin/julia
     rm /tmp/julia.tar.gz
 fi
-julia -e 'using Pkg; Pkg.add("JSON"); Pkg.precompile()'
+julia -e 'using Pkg; Pkg.add(["JSON"{JULIA_PLOTS}]); Pkg.precompile()'

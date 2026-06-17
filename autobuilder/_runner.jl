@@ -26,6 +26,68 @@
 
 import JSON
 
+# ---------------------------------------------------------------------------
+# Plot extraction (Plots.jl)
+# ---------------------------------------------------------------------------
+# Works via duck-typing: accesses .subplots / .series_list without importing
+# Plots, so _runner.jl itself doesn't need `using Plots` -- the student's
+# script already loaded it into their module.
+
+function _safe_collect(v)
+    v === nothing && return Float64[]
+    try; return collect(Float64, v); catch; end
+    try; return collect(v); catch; end
+    return []
+end
+
+function _extract_plot_info(p, checks)
+    info = Dict{String, Any}()
+    sp = p.subplots[1]
+
+    _line_types = Set([:path, :line, :steppre, :steppost, :stepmid])
+    line_series = filter(s -> get(s.plotattributes, :seriestype, :path) in _line_types, p.series_list)
+    bar_series  = filter(s -> get(s.plotattributes, :seriestype, :path) == :bar,        p.series_list)
+
+    for check in checks
+        if check == "xlabel"
+            info["xlabel"] = string(sp[:xaxis][:guide])
+        elseif check == "ylabel"
+            info["ylabel"] = string(sp[:yaxis][:guide])
+        elseif check == "title"
+            info["title"] = string(sp[:title])
+        elseif check == "xlim"
+            lims = sp[:xaxis][:lims]
+            info["xlim"] = lims == :auto ? nothing : [Float64(lims[1]), Float64(lims[2])]
+        elseif check == "ylim"
+            lims = sp[:yaxis][:lims]
+            info["ylim"] = lims == :auto ? nothing : [Float64(lims[1]), Float64(lims[2])]
+        elseif check == "n_lines"
+            info["n_lines"] = length(line_series)
+        elseif check == "line_data"
+            info["line_data"] = [
+                let x = s[:x], y = s[:y]
+                    x_vals = x === nothing ? collect(eachindex(y)) : _safe_collect(x)
+                    [x_vals, _safe_collect(y)]
+                end
+                for s in line_series
+            ]
+        elseif check == "n_bars"
+            info["n_bars"] = isempty(bar_series) ? 0 : sum(length(s[:y]) for s in bar_series)
+        elseif check == "bar_heights"
+            info["bar_heights"] = isempty(bar_series) ? Float64[] :
+                vcat([_safe_collect(s[:y]) for s in bar_series]...)
+        elseif check == "legend_labels"
+            info["legend_labels"] = [
+                string(s[:label]) for s in p.series_list
+                if s[:label] !== false && string(s[:label]) != ""
+            ]
+        end
+    end
+    return info
+end
+
+# ---------------------------------------------------------------------------
+
 function to_jsonsafe(x)
     if x isa AbstractArray
         return [to_jsonsafe(v) for v in eachrow_or_self(x)]

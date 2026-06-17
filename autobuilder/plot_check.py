@@ -83,6 +83,9 @@ def compare_axes_info(student_info, ref_info, rtol=1e-2, atol=1e-2):
                 problems.append(("wrong_size", f"Expected {ref_val} for '{key}', but got {student_val}."))
 
         elif key in ("xlim", "ylim", "bar_heights"):
+            if student_val is None:
+                problems.append(("wrong_size", f"'{key}' was not set (limits were auto-computed; set them explicitly)."))
+                continue
             try:
                 s = np.asarray(student_val, dtype=float)
                 r = np.asarray(ref_val, dtype=float)

@@ -15,9 +15,10 @@ def generate_reference_values(solution_path, test_suite, timeout=10):
     extension. Raises RuntimeError if the solution crashes, is missing
     required names, or raises errors when called with the rubric inputs.
     """
-    specs = _build_solution_specs(test_suite)
+    is_julia = solution_path.endswith(".jl")
+    specs = _build_solution_specs(test_suite, is_julia=is_julia)
 
-    if solution_path.endswith(".jl"):
+    if is_julia:
         from .julia_adapter import run_julia_script
         run_result = run_julia_script(solution_path, specs, timeout=timeout)
     else:
@@ -46,18 +47,28 @@ def generate_reference_values(solution_path, test_suite, timeout=10):
     return run_result["values"]
 
 
-def _build_solution_specs(test_suite):
-    """Build adapter specs for all variable/function tests in the rubric.
+def _build_solution_specs(test_suite, is_julia=False):
+    """Build adapter specs for validating the solution.
 
-    Plot tests are excluded: for Python solutions, plot comparison calls
-    solution functions directly in the generated test code; for Julia
-    solutions, plot tests are not supported at all.
+    For Python solutions, plot tests are skipped — plot comparison calls
+    solution functions directly in the generated test code at grading time,
+    so there is nothing to pre-validate here.
+
+    For Julia solutions, plot tests ARE included with plot_checks so
+    _runner.jl extracts the reference plot info dict, which is then baked
+    into the generated test as an 'expected' value.
     """
     specs = []
     for t in test_suite:
         ttype = t.get("type", "variable")
-        if ttype == "plot":
+        is_plot = (ttype == "plot")
+
+        if is_plot and not is_julia:
             continue
+
+        if is_plot:
+            ttype = "function" if "function_name" in t else "variable"
+
         spec = {"name": t["test_name"], "type": ttype}
         if ttype == "variable":
             spec["variable_name"] = t["variable_name"]
@@ -66,5 +77,9 @@ def _build_solution_specs(test_suite):
             spec["inputs"] = t.get("inputs", [])
             if "output_index" in t:
                 spec["output_index"] = t["output_index"]
+
+        if is_plot:
+            spec["plot_checks"] = t.get("plot_checks", ["xlabel", "ylabel", "title", "n_lines", "line_data"])
+
         specs.append(spec)
     return specs

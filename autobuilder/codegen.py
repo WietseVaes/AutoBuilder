@@ -165,16 +165,19 @@ def _generate_plot_test_method(t, index=0):
     lines.append(f"        {description!r}")
     lines.extend(_get_result_lines(t, name, h_not_defined))
     lines.append("")
-    lines.append("        ax = result.axes[0] if hasattr(result, 'axes') and not hasattr(result, 'get_xlabel') else result")
     lines.append(f"        plot_checks = {plot_checks!r}")
-    lines.append("        try:")
-    lines.append("            student_info = extract_axes_info(ax, plot_checks)")
-    lines.append("        except AttributeError as e:")
+    lines.append("        if isinstance(result, dict):")
+    lines.append("            student_info = result  # Julia: already extracted by _runner.jl")
+    lines.append("        else:")
+    lines.append("            ax = result.axes[0] if hasattr(result, 'axes') and not hasattr(result, 'get_xlabel') else result")
+    lines.append("            try:")
+    lines.append("                student_info = extract_axes_info(ax, plot_checks)")
+    lines.append("            except AttributeError as e:")
     lines.append(
-        f"            self.fail(f\"Expected a matplotlib Axes (or a Figure with one Axes), "
+        f"                self.fail(f\"Expected a matplotlib Axes (or a Figure with one Axes), "
         f"got {{type(ax).__name__}}: {{e}}.\" + {_hint_suffix_expr(repr(h_wrong_type))})"
     )
-    lines.append("            return")
+    lines.append("                return")
     lines.append("")
     if "expected" in t:
         lines.append(f"        ref_info = {t['expected']!r}")
