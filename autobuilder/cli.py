@@ -169,7 +169,7 @@ def main(argv=None):
     p_grade.add_argument("solution", help="Path to your correct solution .py script")
     p_grade.add_argument("submission", help="Path to a .py submission to grade")
     p_grade.add_argument("--inputs", help="Path to a .py file defining test input variables")
-    p_grade.add_argument("--timeout", type=float, default=10, help="Per-run timeout in seconds")
+    p_grade.add_argument("--timeout", type=float, default=60, help="Per-run timeout in seconds")
     p_grade.set_defaults(func=cmd_grade)
 
     args = parser.parse_args(argv)

@@ -171,22 +171,27 @@ function main()
 
         if t["type"] == "variable"
             varname = Symbol(t["variable_name"])
-            if isdefined(mod, varname)
-                try
-                    val = getfield(mod, varname)
-                    if plot_checks !== nothing && isdefined(mod, :__autobuilder_extract_plot_info)
-                        result["values"][name] = Base.invokelatest(
-                            getfield(mod, :__autobuilder_extract_plot_info), val, plot_checks)
-                    else
-                        result["values"][name] = to_jsonsafe(val)
-                    end
-                catch e
+            # Use getfield directly inside a try-catch rather than isdefined +
+            # getfield.  In Julia 1.11+ isdefined() can incorrectly return false
+            # for top-level variables defined via Base.include into a bare Module(),
+            # even though getfield() succeeds.  Catching UndefVarError is equivalent
+            # and works across all 1.x versions.
+            try
+                val = getfield(mod, varname)
+                if plot_checks !== nothing && isdefined(mod, :__autobuilder_extract_plot_info)
+                    result["values"][name] = Base.invokelatest(
+                        getfield(mod, :__autobuilder_extract_plot_info), val, plot_checks)
+                else
+                    result["values"][name] = to_jsonsafe(val)
+                end
+            catch e
+                if e isa UndefVarError
+                    push!(result["_missing"], name)
+                else
                     io = IOBuffer()
                     showerror(io, e)
                     result["_call_errors"][name] = String(take!(io))
                 end
-            else
-                push!(result["_missing"], name)
             end
 
         elseif t["type"] == "function"
@@ -222,11 +227,15 @@ function main()
         JSON.print(f, result)
     end
 
-    # Diagnostic for the "everything reports missing but the script ran fine"
-    # failure mode: if every requested variable/function came back missing,
-    # something structural is wrong with how names are being looked up
-    # (rather than a typo in one rubric entry) -- surface what was actually
-    # defined so this is debuggable from the test output directly.
+    # Diagnostic: if ANY variable/function came back missing, print what was
+    # actually defined in the module to stderr so the failure is self-explanatory
+    # even when only a subset of tests fail (the old check only fired when ALL
+    # failed, hiding partial failures like Julia 1.11 isdefined regressions).
+    if !isempty(result["_missing"])
+        println(stderr,
+            "runner diagnostic: _missing=$(result["_missing"]); " *
+            "names in module: $(result["_debug_defined_names"])")
+    end
     if length(result["_missing"]) == length(tests) && length(tests) > 0
         result["_error"] = (
             "Diagnostic: every requested name was reported as not defined, " *
