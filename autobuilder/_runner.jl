@@ -74,19 +74,23 @@ function main()
         "_debug_defined_names" => String[],
     )
 
-    mod = Module(:StudentSolution)
+    # Module(:StudentSolution) + Base.include has a regression in Julia 1.11+
+    # where top-level variable assignments (x = val) are not registered as
+    # accessible bindings, while function definitions still work.  Using a real
+    # module declaration via Core.eval(Main, Meta.parse("module M\ncode\nend"))
+    # goes through Julia's standard module-compilation path and correctly
+    # registers all top-level bindings.
+    mod = Module(:StudentSolution)  # fallback; overwritten on success
 
     try
-        Base.include(mod, script_path)
+        code = read(script_path, String)
+        Core.eval(Main, Meta.parse("module StudentSolution\n$(code)\nend"))
+        mod = getfield(Main, :StudentSolution)
     catch e
         msg_io = IOBuffer()
         showerror(msg_io, e)
         backtrace_io = IOBuffer()
         Base.show_backtrace(backtrace_io, catch_backtrace())
-        # First line is the actual error (e.g. "UndefVarError: `x` not
-        # defined" or "LoadError: ..."), which is what matters to a
-        # student -- the backtrace after it is mostly internal Julia call
-        # stack frames, kept for instructors who want the full detail.
         result["_error"] = String(take!(msg_io)) * "\n" * String(take!(backtrace_io))
         open(output_path, "w") do f
             JSON.print(f, result)

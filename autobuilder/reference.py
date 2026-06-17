@@ -31,9 +31,13 @@ def generate_reference_values(solution_path, test_suite, timeout=10):
         )
     if run_result["_missing"]:
         missing = ", ".join(run_result["_missing"])
+        debug_names = run_result.get("_debug_defined_names", [])
+        debug_str = (
+            f"\nDebug — names found in the module: {debug_names}" if debug_names else ""
+        )
         raise RuntimeError(
             "Your solution script did not define everything the rubric "
-            f"requires (missing for test(s): {missing})."
+            f"requires (missing for test(s): {missing}).{debug_str}"
         )
     if run_result["_call_errors"]:
         details = "\n\n".join(
