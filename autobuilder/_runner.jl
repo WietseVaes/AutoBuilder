@@ -74,18 +74,16 @@ function main()
         "_debug_defined_names" => String[],
     )
 
-    # Module(:StudentSolution) + Base.include has a regression in Julia 1.11+
-    # where top-level variable assignments (x = val) are not registered as
-    # accessible bindings, while function definitions still work.  Using a real
-    # module declaration via Core.eval(Main, Meta.parse("module M\ncode\nend"))
-    # goes through Julia's standard module-compilation path and correctly
-    # registers all top-level bindings.
-    mod = Module(:StudentSolution)  # fallback; overwritten on success
+    # In Julia 1.11+, Base.include into a bare Module() and Core.eval with a
+    # module declaration both fail to register top-level variable assignments as
+    # accessible bindings (functions still work because they also register in the
+    # parent module's method table).  Using Main directly avoids the broken
+    # child-module binding path entirely.  Each runner invocation is a fresh
+    # process so there is no cross-run contamination.
+    mod = Main
 
     try
-        code = read(script_path, String)
-        Core.eval(Main, Meta.parse("module StudentSolution\n$(code)\nend"))
-        mod = getfield(Main, :StudentSolution)
+        Base.include(Main, script_path)
     catch e
         msg_io = IOBuffer()
         showerror(msg_io, e)
