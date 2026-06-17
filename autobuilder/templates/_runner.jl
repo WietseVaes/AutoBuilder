@@ -55,6 +55,11 @@ function eachrow_or_self(x::AbstractArray)
     return x  # higher-dimensional arrays: best effort, flatten via collect
 end
 
+function defined_names(mod)
+    return sort([string(n) for n in names(mod, all=true)
+                 if !startswith(string(n), "#") && n != :eval && n != :include])
+end
+
 function main()
     script_path, output_path, tests_json = ARGS[1], ARGS[2], ARGS[3]
     tests = JSON.parse(tests_json)
@@ -64,12 +69,13 @@ function main()
         "values" => Dict{String, Any}(),
         "_missing" => String[],
         "_call_errors" => Dict{String, Any}(),
+        "_debug_defined_names" => String[],
     )
 
     mod = Module(:StudentSolution)
 
     try
-        Base.include(mod, script_path)
+        Base.eval(mod, :(include($script_path)))
     catch e
         io = IOBuffer()
         showerror(io, e, catch_backtrace())
@@ -79,6 +85,8 @@ function main()
         end
         return
     end
+
+    result["_debug_defined_names"] = defined_names(mod)
 
     for t in tests
         name = t["name"]
@@ -123,6 +131,22 @@ function main()
 
     open(output_path, "w") do f
         JSON.print(f, result)
+    end
+
+    # Diagnostic for the "everything reports missing but the script ran fine"
+    # failure mode: if every requested variable/function came back missing,
+    # something structural is wrong with how names are being looked up
+    # (rather than a typo in one rubric entry) -- surface what was actually
+    # defined so this is debuggable from the test output directly.
+    if length(result["_missing"]) == length(tests) && length(tests) > 0
+        result["_error"] = (
+            "Diagnostic: every requested name was reported as not defined, " *
+            "but the script ran without error. Names actually defined: " *
+            join(result["_debug_defined_names"], ", ")
+        )
+        open(output_path, "w") do f
+            JSON.print(f, result)
+        end
     end
 end
 

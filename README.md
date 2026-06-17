@@ -113,6 +113,7 @@ autobuilder grade rubric.json solution.py submission.py --inputs test_inputs.py
 
 ```json
 {
+  "language": "python",
   "requirements": ["numpy", "scipy"],
   "extra_files": ["train_data.csv", "test_data.csv"],
   "timeout": 10,
@@ -123,6 +124,7 @@ autobuilder grade rubric.json solution.py submission.py --inputs test_inputs.py
 
 | Field | Description |
 |-------|-------------|
+| `language` | `"python"` (default) or `"julia"`. The whole assignment grades in one language -- see [Student submission](#student-submission) |
 | `requirements` | pip packages installed by `setup.sh` on Gradescope |
 | `extra_files` | Data files (`.csv` etc.) placed next to `rubric.json`, copied into the autograder zip and available at grading time |
 | `timeout` | Seconds allowed when validating `solution.py` at build time |
@@ -331,24 +333,36 @@ Attempt tracking requires Gradescope's "Allow resubmission" setting to be enable
 
 ## Student submission
 
-Students can submit **Python (`.py`/`.ipynb`) or Julia (`.jl`) files, under any name**. The language is auto-detected per submission from the file extension -- no rubric configuration needed; the same `rubric.json` grades either language.
+Each assignment grades in exactly one language, declared once in `rubric.json`:
 
-If multiple files of the same language are submitted, the one that defines the most names the rubric is looking for is selected automatically. If files of *both* languages are submitted together, Python is used (a known limitation -- mixed submissions aren't expected, but this avoids silently picking one without telling you).
+```json
+{
+  "language": "julia"
+}
+```
 
-`.ipynb` (Jupyter notebook) submissions are converted to plain Python before grading: code cells are concatenated in order, markdown cells are skipped, and lines starting with `%` (magic commands like `%matplotlib inline`) or `!` (shell escapes like `!pip install ...`) are stripped, since they aren't valid outside Jupyter. Julia-kernel notebooks aren't supported yet -- only Python-kernel `.ipynb` and plain `.jl` scripts.
+Defaults to `"python"` if omitted, so existing rubrics work unchanged. Students submit:
+- **Python**: a `.py` file, or a `.ipynb` Jupyter notebook with a Python kernel, under any name.
+- **Julia**: a `.jl` file, under any name.
+
+If multiple files of the right language are submitted, the one that defines the most names the rubric is looking for is selected automatically. A submission in the *wrong* language for the assignment (e.g. a `.py` file submitted to a `language: "julia"` rubric) is rejected with a clear message rather than silently ignored or guessed about.
+
+`.ipynb` (Jupyter notebook) submissions are converted to plain Python before grading: code cells are concatenated in order, markdown cells are skipped, and lines starting with `%` (magic commands like `%matplotlib inline`) or `!` (shell escapes like `!pip install ...`) are stripped, since they aren't valid outside Jupyter. Julia-kernel notebooks aren't supported yet.
 
 ### Julia support status (since v0.5.0)
 
-Variable, scalar, string, and array tests work for Julia submissions the same way they do for Python: a generated test gets the value via a small Julia driver script (`_runner.jl`, run via the `julia` executable, vendored into the zip), serializes it to JSON, and compares it with the exact same `compare()` logic used for Python -- so a single rubric entry grades either language identically, with no duplicated comparison code.
+Variable, scalar, string, and array tests work for Julia submissions the same way they do for Python: a generated test gets the value via a small Julia driver script (`_runner.jl`, run via the `julia` executable, vendored into the zip), serializes it to JSON, and compares it with the exact same `compare()` logic used for Python -- so a single rubric entry's hints/tolerances/scoring work identically regardless of language, with no duplicated comparison code.
+
+The solution (`solution.py`) is always Python, regardless of the assignment's declared language -- it's the instructor-controlled ground truth and doesn't need to match what students submit.
 
 **Not yet supported for Julia submissions:**
 - DataFrame tests (would need a `DataFrames.jl` -> JSON serialization path)
 - Plot tests (matplotlib's `Axes` introspection has no Julia equivalent; Julia's plotting ecosystem -- Plots.jl, Makie.jl -- would need separate, backend-specific extraction code)
 - Julia-kernel Jupyter/Pluto notebooks
 
-**Important: the Julia path has not been tested against a real `julia` interpreter** -- this development environment has no Julia install and no network access to install one. The Python-side orchestration (language detection, building the subprocess call, JSON round-tripping, error handling when `julia` isn't found) has been verified, but `_runner.jl` itself (the actual Julia code that includes a script and serializes values) has only been reviewed, not executed. If you try the `autobuilder/examples/julia_test/` example and something doesn't work, the most likely place to look is `autobuilder/_runner.jl`'s JSON serialization, particularly around matrices (row-major vs Julia's native column-major storage) and `output_index` (0-based in the rubric vs Julia's 1-based indexing, which the runner adjusts for but is easy to get backwards).
+**Important: the Julia path has not been tested against a real `julia` interpreter** -- this development environment has no Julia install and no network access to install one. The Python-side orchestration (language validation, building the subprocess call, JSON round-tripping, error handling when `julia` isn't found) has been verified, but `_runner.jl` itself (the actual Julia code that includes a script and serializes values) has only been reviewed, not executed. If you try the `autobuilder/examples/julia_test/` example and a variable reports as "not defined" even though it clearly is, `_runner.jl` will report (in `_error`) every name Julia actually sees defined after running the script -- check that message first, it's designed to make this specific failure mode diagnosable without needing back-and-forth.
 
-`setup.sh` installs Julia (currently pinned to 1.10.4) and the `JSON` package unconditionally, regardless of whether the assignment expects Julia submissions, since language detection happens per-submission at grading time rather than being declared up front.
+`setup.sh` only installs Julia (currently pinned to 1.10.4) and the `JSON` package when `rubric.json` declares `"language": "julia"` -- Python-only assignments (the default) build and grade without any Julia-related setup overhead.
 
 ---
 
@@ -357,7 +371,7 @@ Variable, scalar, string, and array tests work for Julia submissions the same wa
 - `autobuilder/examples/total_test/`: strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem, with five example submissions (four `.py`, one `.ipynb`) showing a progression from 0/20 to 20/20. Every test entry's `rubric.json` has all five hint types filled in, as a reference.
 - `autobuilder/examples/dataframe_test/`: a `pandas.DataFrame` built from scratch, a derived column, and a groupby summary -- three submissions showing a column-name mismatch and a value mismatch cascading into a dependent test.
 - `autobuilder/examples/plot_test/`: a numpy array plus a matplotlib plot of it, with separate `hint_wrong_size`/`hint_tolerance` hints on both the array test and the plot test. The plot test's `hint_image` (a rendered reference plot, `expected_damped_wave.png`) is attached only to its tolerance-failure path -- five submissions demonstrate the image appearing only when the *values* are wrong (not the size), and every plot mismatch being listed individually rather than stopping at the first.
-- `autobuilder/examples/julia_test/`: the same string/scalar/array/function rubric, with three `.jl` submissions (correct, wrong values, misnamed function) -- demonstrates Julia submission support. **Untested against a real Julia install**, see the Julia support section above.
+- `autobuilder/examples/julia_test/`: `rubric.json` with `"language": "julia"`, the same string/scalar/array/function checks as the other examples, with three `.jl` submissions (correct, wrong values, misnamed function). **Untested against a real Julia install**, see the Julia support section above.
 
 ```bash
 cd autobuilder/examples/total_test

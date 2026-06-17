@@ -54,6 +54,7 @@ def cmd_grade(args):
     rubric_dir = os.path.dirname(os.path.abspath(args.rubric))
     config["test_suite"] = _resolve_hint_images(config["test_suite"], rubric_dir)
 
+    rubric_language = config.get("language", "python")
     submission_ext = os.path.splitext(args.submission)[1].lower()
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -66,35 +67,44 @@ def cmd_grade(args):
 
         shutil.copy(args.solution, os.path.join(tmp, "solution.py"))
 
-        # Detect the submission's language by extension and write the
-        # marker + spec files student_dispatch.py needs -- this mirrors
-        # what prepare_submission.py does on Gradescope, condensed for a
-        # single local file.
-        if submission_ext == ".jl":
+        # This rubric is single-language (rubric.json's top-level
+        # "language" field) -- the submission's extension must match.
+        if rubric_language == "julia":
+            if submission_ext != ".jl":
+                print(
+                    f"This rubric expects a Julia (.jl) submission, but "
+                    f"'{args.submission}' is not a .jl file."
+                )
+                return 1
             submission_target = os.path.join(tmp, "student_submission.jl")
             shutil.copy(args.submission, submission_target)
-            language = "julia"
             shutil.copy(os.path.join(os.path.dirname(__file__), "templates", "_runner.jl"),
                         os.path.join(tmp, "_runner.jl"))
-        elif submission_ext == ".ipynb":
-            from .notebook_convert import notebook_to_python
-            code = notebook_to_python(args.submission)
-            if code is None:
-                print(f"Could not convert {args.submission} as a Python notebook.")
-                return 1
-            submission_target = os.path.join(tmp, "student_submission.py")
-            with open(submission_target, "w", encoding="utf-8") as f:
-                f.write(code)
-            language = "python"
         else:
-            submission_target = os.path.join(tmp, "student_submission.py")
-            shutil.copy(args.submission, submission_target)
-            language = "python"
+            if submission_ext == ".ipynb":
+                from .notebook_convert import notebook_to_python
+                code = notebook_to_python(args.submission)
+                if code is None:
+                    print(f"Could not convert {args.submission} as a Python notebook.")
+                    return 1
+                submission_target = os.path.join(tmp, "student_submission.py")
+                with open(submission_target, "w", encoding="utf-8") as f:
+                    f.write(code)
+            elif submission_ext == ".py":
+                submission_target = os.path.join(tmp, "student_submission.py")
+                shutil.copy(args.submission, submission_target)
+            else:
+                print(
+                    f"This rubric expects a Python (.py/.ipynb) submission, but "
+                    f"'{args.submission}' is not one."
+                )
+                return 1
 
         with open(os.path.join(tmp, "student_language.json"), "w") as f:
-            json.dump({"language": language, "submission_path": submission_target}, f)
+            json.dump({"language": rubric_language, "submission_path": submission_target}, f)
         with open(os.path.join(tmp, "all_test_specs.json"), "w") as f:
             json.dump(_build_all_specs(config["test_suite"]), f)
+
 
         with open(os.path.join(tmp, "test_rubric.py"), "w") as f:
             f.write(generate_test_file(config["test_suite"]))

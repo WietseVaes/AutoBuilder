@@ -1,9 +1,10 @@
 """
-Detects which language the student submitted in (Python or Julia, script
-or notebook), normalizes it to a single entry-point file, and writes a
-small marker file (student_language.json) recording the language and the
-normalized file's path -- read by autobuilder.student_dispatch at grading
-time to pick the right adapter.
+Normalizes the student's submission to a single entry-point file based on
+the language declared in rubric.json's top-level "language" field
+("python" or "julia", default "python"), and writes a small marker file
+(student_language.json) recording the language and the normalized file's
+path -- read by autobuilder.student_dispatch at grading time to pick the
+right adapter.
 
 Run from /autograder/source after the submission has been copied in by
 run_autograder. After cp -r, /autograder/source contains both the
@@ -11,22 +12,24 @@ autograder's own files and whatever the student submitted, mixed together
 -- this picks out the student's file(s) by excluding the known autograder
 files.
 
+Only files matching the declared language are considered. A submission in
+the other language is reported as a clear note in the marker (surfaced to
+the student as "wrong language" rather than silently ignored or guessed
+about), rather than supporting mixed Python+Julia submissions.
+
 Detection and normalization, by extension:
-  .py     -> used directly
+  .py     -> used directly (language: "python")
   .ipynb  -> Jupyter notebook with a Python kernel: code cells
              concatenated, magics/shell-escapes stripped, written to a
-             sibling .py file
-  .jl     -> used directly
-  (.ipynb with a Julia kernel is not yet supported -- flagged as a
-  limitation, see README)
+             sibling .py file (language: "python")
+  .jl     -> used directly (language: "julia")
+  (.ipynb with a Julia kernel is not yet supported)
 
-If multiple files of the SAME language are submitted, the one that
+If multiple files of the declared language are submitted, the one that
 defines the most names the rubric is looking for is selected (via AST
 inspection for Python; a lightweight regex-based scan for Julia, since
 Julia has no stdlib AST module readily available without invoking the
-julia executable itself). If files of BOTH languages are submitted
-together, Python is used (the more common / better-supported path);
-this is also flagged as a known limitation.
+julia executable itself).
 """
 import ast
 import json
@@ -135,40 +138,57 @@ def _pick_best(candidates, required, defined_names_fn):
 def main():
     _convert_notebooks()
 
-    py_candidates = sorted(
-        f for f in os.listdir(SOURCE_DIR)
-        if f.endswith(".py") and f not in INFRA_FILES and not f.startswith("test")
-    )
-    jl_candidates = sorted(
-        f for f in os.listdir(SOURCE_DIR)
-        if f.endswith(".jl") and f not in INFRA_FILES and not f.startswith("test")
-    )
-
     try:
         with open(os.path.join(SOURCE_DIR, "rubric.json")) as f:
             config = json.load(f)
     except (OSError, ValueError):
         config = {}
     required = _required_names(config)
+    language = config.get("language", "python")
 
-    marker = {"language": None, "submission_path": None}
+    marker = {"language": language, "submission_path": None}
 
-    if py_candidates and jl_candidates:
-        # Both submitted -- known limitation, default to Python.
-        best = _pick_best(py_candidates, required, _defined_names_python)
-        shutil.copy(os.path.join(SOURCE_DIR, best), PY_TARGET)
-        marker = {"language": "python", "submission_path": PY_TARGET,
-                   "note": "Both .py and .jl files were submitted; graded as Python."}
-    elif py_candidates:
-        best = _pick_best(py_candidates, required, _defined_names_python)
-        shutil.copy(os.path.join(SOURCE_DIR, best), PY_TARGET)
-        marker = {"language": "python", "submission_path": PY_TARGET}
-    elif jl_candidates:
-        best = _pick_best(jl_candidates, required, _defined_names_julia)
-        shutil.copy(os.path.join(SOURCE_DIR, best), JL_TARGET)
-        marker = {"language": "julia", "submission_path": JL_TARGET}
-    # else: no submission found at all -- marker stays {"language": None, ...},
-    # student_dispatch.get_student_result will report every test as "missing".
+    if language == "julia":
+        candidates = sorted(
+            f for f in os.listdir(SOURCE_DIR)
+            if f.endswith(".jl") and f not in INFRA_FILES and not f.startswith("test")
+        )
+        if candidates:
+            best = _pick_best(candidates, required, _defined_names_julia)
+            shutil.copy(os.path.join(SOURCE_DIR, best), JL_TARGET)
+            marker["submission_path"] = JL_TARGET
+
+        # If a .py file was submitted to a Julia-only assignment, flag it
+        # clearly rather than silently ignoring it.
+        py_candidates = [
+            f for f in os.listdir(SOURCE_DIR)
+            if f.endswith(".py") and f not in INFRA_FILES and not f.startswith("test")
+        ]
+        if not candidates and py_candidates:
+            marker["note"] = (
+                "This assignment expects a Julia (.jl) submission, but a "
+                "Python file was uploaded instead. Please submit a .jl file."
+            )
+
+    else:  # python
+        candidates = sorted(
+            f for f in os.listdir(SOURCE_DIR)
+            if f.endswith(".py") and f not in INFRA_FILES and not f.startswith("test")
+        )
+        if candidates:
+            best = _pick_best(candidates, required, _defined_names_python)
+            shutil.copy(os.path.join(SOURCE_DIR, best), PY_TARGET)
+            marker["submission_path"] = PY_TARGET
+
+        jl_candidates = [
+            f for f in os.listdir(SOURCE_DIR)
+            if f.endswith(".jl") and f not in INFRA_FILES and not f.startswith("test")
+        ]
+        if not candidates and jl_candidates:
+            marker["note"] = (
+                "This assignment expects a Python (.py/.ipynb) submission, but "
+                "a Julia file was uploaded instead. Please submit a .py file."
+            )
 
     with open(MARKER_PATH, "w") as f:
         json.dump(marker, f)

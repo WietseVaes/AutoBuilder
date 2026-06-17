@@ -168,6 +168,13 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
         config["timeout"] = timeout
     config.setdefault("timeout", DEFAULT_TIMEOUT)
 
+    language = config.get("language", "python")
+    if language not in ("python", "julia"):
+        raise RuntimeError(
+            f"rubric.json: \"language\" must be \"python\" or \"julia\", got {language!r}."
+        )
+    config["language"] = language
+
     # Resolve $-prefixed inputs from the inputs file, if provided.
     if inputs_file:
         inputs_ns = _load_inputs_namespace(inputs_file)
@@ -178,7 +185,9 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
     rubric_dir = os.path.dirname(os.path.abspath(rubric_path))
     config["test_suite"] = _resolve_hint_images(config["test_suite"], rubric_dir)
 
-    # Validate the solution against the (resolved) rubric before generating anything.
+    # Validate the solution against the (resolved) rubric before generating
+    # anything. The solution is always Python, regardless of the assignment
+    # language -- it's the instructor-controlled ground truth.
     generate_reference_values(solution_path, config["test_suite"], timeout=config["timeout"])
 
     requirements = list(dict.fromkeys(["gradescope-utils>=0.3.1"] + config.get("requirements", [])))
@@ -233,9 +242,19 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
         shutil.copy(os.path.join(TEMPLATES_DIR, "run_autograder"), run_autograder_path)
         os.chmod(run_autograder_path, 0o755)
 
-        # setup.sh
+        # setup.sh -- Julia install block only included when the rubric
+        # declares language: "julia", so Python-only assignments build
+        # and grade much faster (no curl/tar/Pkg.add/precompile).
+        with open(os.path.join(TEMPLATES_DIR, "setup.sh")) as f:
+            setup_template = f.read()
+        if language == "julia":
+            with open(os.path.join(TEMPLATES_DIR, "setup_julia_block.sh")) as f:
+                julia_block = f.read()
+        else:
+            julia_block = ""
         setup_path = os.path.join(staging, "setup.sh")
-        shutil.copy(os.path.join(TEMPLATES_DIR, "setup.sh"), setup_path)
+        with open(setup_path, "w") as f:
+            f.write(setup_template.replace("{JULIA_SETUP}", julia_block))
         os.chmod(setup_path, 0o755)
 
         # requirements.txt

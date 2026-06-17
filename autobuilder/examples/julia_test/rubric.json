@@ -1,5 +1,8 @@
 {
-  "requirements": ["numpy"],
+  "language": "julia",
+  "requirements": [
+    "numpy"
+  ],
   "test_suite": [
     {
       "test_name": "JL1",
@@ -18,8 +21,8 @@
       "type": "variable",
       "variable_name": "scale_factor",
       "description": "scale_factor is the correct scalar",
-      "rtol": 1e-6,
-      "atol": 1e-6,
+      "rtol": 1e-06,
+      "atol": 1e-06,
       "score": 1,
       "hint_not_defined": "Define a variable called scale_factor.",
       "hint_wrong_type": "scale_factor should be a number.",
@@ -30,8 +33,8 @@
       "type": "variable",
       "variable_name": "squares",
       "description": "squares is [1, 4, 9, 16, 25]",
-      "rtol": 1e-6,
-      "atol": 1e-6,
+      "rtol": 1e-06,
+      "atol": 1e-06,
       "score": 1,
       "hint_not_defined": "Define a variable called squares.",
       "hint_wrong_type": "squares should be an array/vector of numbers.",
@@ -42,10 +45,12 @@
       "test_name": "JL4",
       "type": "function",
       "function_name": "add_one",
-      "inputs": [5.0],
+      "inputs": [
+        5.0
+      ],
       "description": "add_one(5.0) returns 6.0",
-      "rtol": 1e-6,
-      "atol": 1e-6,
+      "rtol": 1e-06,
+      "atol": 1e-06,
       "score": 1,
       "hint_not_defined": "Define a function called add_one(x).",
       "hint_tolerance": "add_one should return x + 1."

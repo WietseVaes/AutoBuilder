@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "autobuilder"
-version = "0.5.0"
+version = "0.5.1"
 description = "Build Gradescope PyUnit autograder zips from a rubric + solution script."
 requires-python = ">=3.8"
 dependencies = [
