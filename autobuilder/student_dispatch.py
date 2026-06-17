@@ -53,6 +53,19 @@ def _load_marker():
     return _cache["marker"]
 
 
+def _summarize_error(detail, language):
+    """Reduce a possibly multi-line error/traceback to the single most
+    useful line, accounting for the fact that Python tracebacks put the
+    actual exception message LAST, while Julia's showerror output (as
+    captured by _runner.jl) puts it FIRST."""
+    if not detail:
+        return detail
+    lines = [l for l in detail.strip().splitlines() if l.strip()]
+    if not lines:
+        return detail.strip()
+    return lines[0] if language == "julia" else lines[-1]
+
+
 def get_student_result(spec, timeout=10):
     """Run a single test spec against the student's submission. Returns
     a dict with keys: "value" (if successful), "missing" (bool), or
@@ -77,11 +90,11 @@ def get_student_result(spec, timeout=10):
     name = spec["name"]
 
     if run_result.get("_error"):
-        return {"missing": True, "error_detail": run_result["_error"]}
+        return {"missing": True, "error_detail": _summarize_error(run_result["_error"], language)}
     if name in run_result.get("_missing", []):
         return {"missing": True, "error_detail": None}
     if name in run_result.get("_call_errors", {}):
-        return {"call_error": run_result["_call_errors"][name]}
+        return {"call_error": _summarize_error(run_result["_call_errors"][name], language)}
     return {"value": run_result["values"][name]}
 
 

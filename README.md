@@ -362,6 +362,8 @@ The solution (`solution.py`) is always Python, regardless of the assignment's de
 
 **Important: the Julia path has not been tested against a real `julia` interpreter** -- this development environment has no Julia install and no network access to install one. The Python-side orchestration (language validation, building the subprocess call, JSON round-tripping, error handling when `julia` isn't found) has been verified, but `_runner.jl` itself (the actual Julia code that includes a script and serializes values) has only been reviewed, not executed. If you try the `autobuilder/examples/julia_test/` example and a variable reports as "not defined" even though it clearly is, `_runner.jl` will report (in `_error`) every name Julia actually sees defined after running the script -- check that message first, it's designed to make this specific failure mode diagnosable without needing back-and-forth.
 
+Error messages from a crashed submission show the actual error (e.g. `UndefVarError: ...` for Julia, `SyntaxError: ...` for Python), not internal stack-trace plumbing -- `autobuilder.student_dispatch._summarize_error` picks the right line per language, since Python tracebacks put the message last while Julia's error output puts it first.
+
 `setup.sh` only installs Julia (currently pinned to 1.10.4) and the `JSON` package when `rubric.json` declares `"language": "julia"` -- Python-only assignments (the default) build and grade without any Julia-related setup overhead.
 
 ---

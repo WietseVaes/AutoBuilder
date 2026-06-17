@@ -77,9 +77,15 @@ function main()
     try
         Base.eval(mod, :(include($script_path)))
     catch e
-        io = IOBuffer()
-        showerror(io, e, catch_backtrace())
-        result["_error"] = String(take!(io))
+        msg_io = IOBuffer()
+        showerror(msg_io, e)
+        backtrace_io = IOBuffer()
+        Base.show_backtrace(backtrace_io, catch_backtrace())
+        # First line is the actual error (e.g. "UndefVarError: `x` not
+        # defined" or "LoadError: ..."), which is what matters to a
+        # student -- the backtrace after it is mostly internal Julia call
+        # stack frames, kept for instructors who want the full detail.
+        result["_error"] = String(take!(msg_io)) * "\n" * String(take!(backtrace_io))
         open(output_path, "w") do f
             JSON.print(f, result)
         end

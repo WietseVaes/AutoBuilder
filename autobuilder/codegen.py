@@ -96,7 +96,7 @@ def _get_result_lines(t, name, h_not_defined):
         f"            detail = _outcome.get('error_detail')"
     )
     lines.append(
-        f"            extra = f\" ({{detail.strip().splitlines()[-1]}})\" if detail else \"\""
+        f"            extra = f\" ({{detail}})\" if detail else \"\""
     )
     lines.append(
         f"            self.fail(f\"{what} is not defined.\" + extra + "
@@ -109,13 +109,13 @@ def _get_result_lines(t, name, h_not_defined):
     if ttype == "variable":
         lines.append(
             f"            self.fail(f\"Your code raised an error reading {varname!r}: "
-            f"{{_outcome['call_error'].strip().splitlines()[-1]}}\" + "
+            f"{{_outcome['call_error']}}\" + "
             f"{_hint_suffix_expr(repr(h_not_defined))})"
         )
     else:
         lines.append(
             f"            self.fail(f\"Your code raised an error when calling {fname!r}: "
-            f"{{_outcome['call_error'].strip().splitlines()[-1]}}\" + "
+            f"{{_outcome['call_error']}}\" + "
             f"{_hint_suffix_expr(repr(h_not_defined))})"
         )
     lines.append("            return")
