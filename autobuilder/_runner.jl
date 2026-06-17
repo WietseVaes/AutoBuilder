@@ -166,7 +166,7 @@ function main()
                     val = getfield(mod, varname)
                     plot_checks = get(t, "plot_checks", nothing)
                     result["values"][name] = plot_checks !== nothing ?
-                        _extract_plot_info(val, plot_checks) : to_jsonsafe(val)
+                        Base.invokelatest(_extract_plot_info, val, plot_checks) : to_jsonsafe(val)
                 catch e
                     io = IOBuffer()
                     showerror(io, e)
@@ -188,9 +188,11 @@ function main()
                 output = Base.invokelatest(f, inputs...)
                 plot_checks = get(t, "plot_checks", nothing)
                 if plot_checks !== nothing
-                    # Plot test: extract a plain dict from the Plots.jl object
-                    # instead of serializing it raw (JSON.jl cannot traverse it).
-                    result["values"][name] = _extract_plot_info(output, plot_checks)
+                    # Plot test: extract a plain dict from the Plots.jl object.
+                    # invokelatest is required: Plots methods are defined in a newer
+                    # world than _runner.jl's main() (loaded via `using Plots` in the
+                    # student script), so a direct call would be a world-age error.
+                    result["values"][name] = Base.invokelatest(_extract_plot_info, output, plot_checks)
                 else
                     if get(t, "output_index", nothing) !== nothing
                         # JSON test specs use 0-based indices (Python convention);
