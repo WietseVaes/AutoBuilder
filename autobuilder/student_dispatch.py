@@ -66,10 +66,16 @@ def _summarize_error(detail, language):
     return lines[0] if language == "julia" else lines[-1]
 
 
-def get_student_result(spec, timeout=10):
+def get_student_result(spec, timeout=None):
     """Run a single test spec against the student's submission. Returns
     a dict with keys: "value" (if successful), "missing" (bool), or
     "call_error" (string), exactly one of which is meaningful."""
+    if timeout is None:
+        try:
+            with open(os.path.join(SOURCE_DIR, "rubric.json")) as f:
+                timeout = json.load(f).get("timeout", 60)
+        except (OSError, ValueError):
+            timeout = 60
     marker = _load_marker()
     language = marker.get("language")
     submission_path = marker.get("submission_path")
