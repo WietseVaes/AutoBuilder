@@ -82,7 +82,9 @@ def _load_inputs_namespace(inputs_file_path):
 def _resolve_inputs(test_suite, inputs_ns):
     """Replace "$varname" strings in test_suite inputs/expected with the
     actual values from the inputs namespace, converted to JSON-safe form
-    (numpy arrays become nested lists). Modifies test_suite in place."""
+    (numpy arrays become nested lists). Callable values become
+    {"__callable__": "varname"} markers, resolved at grading time via
+    the shipped test_inputs.py. Modifies test_suite in place."""
     import copy
     import numpy as np
 
@@ -103,7 +105,10 @@ def _resolve_inputs(test_suite, inputs_ns):
                     f"Input '${varname}' not found in inputs file. "
                     f"Available names: {sorted(k for k in inputs_ns if not k.startswith('_'))}"
                 )
-            return to_json_safe(inputs_ns[varname])
+            val = inputs_ns[varname]
+            if callable(val):
+                return {"__callable__": varname}
+            return to_json_safe(val)
         return item
 
     test_suite = copy.deepcopy(test_suite)
@@ -113,6 +118,15 @@ def _resolve_inputs(test_suite, inputs_ns):
         if "expected" in t:
             t["expected"] = resolve(t["expected"])
     return test_suite
+
+
+def _has_callable_inputs(test_suite):
+    """Return True if any test has a callable-marker input."""
+    return any(
+        isinstance(inp, dict) and "__callable__" in inp
+        for t in test_suite
+        for inp in t.get("inputs", [])
+    )
 
 
 def _resolve_hint_images(test_suite, rubric_dir):
@@ -221,6 +235,8 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
         os.makedirs(pkg_dir)
         for fname in VENDOR_FILES:
             shutil.copy(os.path.join(PACKAGE_DIR, fname), os.path.join(pkg_dir, fname))
+        if inputs_file and _has_callable_inputs(config["test_suite"]):
+            shutil.copy(inputs_file, os.path.join(pkg_dir, "test_inputs.py"))
 
         # tests/
         tests_dir = os.path.join(staging, "tests")

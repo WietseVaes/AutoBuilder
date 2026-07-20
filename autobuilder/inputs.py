@@ -30,3 +30,23 @@ def convert_value(x):
 
 def convert_inputs(inputs):
     return [convert_value(x) for x in inputs]
+
+
+def resolve_callable_inputs(inputs, module):
+    """Replace {"__callable__": "varname"} markers with actual callables.
+
+    Markers are produced by build._resolve_inputs when a $-prefixed input
+    variable is callable. Pass the imported test_inputs module as `module`.
+    Returns the inputs list unchanged when no markers are present.
+    """
+    if not any(isinstance(x, dict) and "__callable__" in x for x in inputs):
+        return inputs
+    if module is None:
+        raise ImportError(
+            "Callable inputs require a test_inputs.py file. "
+            "Pass --inputs to `autobuilder grade` or `autobuilder build`."
+        )
+    return [
+        getattr(module, x["__callable__"]) if isinstance(x, dict) and "__callable__" in x else x
+        for x in inputs
+    ]

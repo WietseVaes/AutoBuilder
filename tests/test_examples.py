@@ -28,16 +28,19 @@ class GradeResult:
     raw: str  # full stdout
 
 
-def _grade(example: str, solution: str, submission: str) -> GradeResult:
+def _grade(example: str, solution: str, submission: str, inputs: str = None) -> GradeResult:
     d = os.path.join(EXAMPLES, example)
+    cmd = [
+        sys.executable, "-m", "autobuilder.cli",
+        "grade",
+        os.path.join(d, "rubric.json"),
+        os.path.join(d, solution),
+        os.path.join(d, submission),
+    ]
+    if inputs:
+        cmd += ["--inputs", os.path.join(d, inputs)]
     proc = subprocess.run(
-        [
-            sys.executable, "-m", "autobuilder.cli",
-            "grade",
-            os.path.join(d, "rubric.json"),
-            os.path.join(d, solution),
-            os.path.join(d, submission),
-        ],
+        cmd,
         capture_output=True,
         text=True,
     )
@@ -237,3 +240,26 @@ def test_grade(example, solution, submission,
             f"Expected hint not found in grader output:\n"
             f"  {snippet!r}\n\nFull output:\n{g.raw}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Callable inputs (--inputs flag with a function value)
+# ---------------------------------------------------------------------------
+
+def test_grade_callable_correct():
+    g = _grade("callable_test", "solution.py", "submission_01_correct.py",
+               inputs="test_inputs.py")
+    assert g.score == 3, f"Score: expected 3, got {g.score}\n{g.raw}"
+    assert g.n_passed == 1, f"Pass count: expected 1, got {g.n_passed}\n{g.raw}"
+    assert g.n_failed == 0, f"Fail count: expected 0, got {g.n_failed}\n{g.raw}"
+
+
+def test_grade_callable_wrong():
+    g = _grade("callable_test", "solution.py", "submission_02_wrong.py",
+               inputs="test_inputs.py")
+    assert g.score == 0, f"Score: expected 0, got {g.score}\n{g.raw}"
+    assert g.n_passed == 0, f"Pass count: expected 0, got {g.n_passed}\n{g.raw}"
+    assert g.n_failed == 1, f"Fail count: expected 1, got {g.n_failed}\n{g.raw}"
+    assert "apply_twice should apply f to x, then apply f to the result" in g.raw, (
+        f"Expected hint not found\n{g.raw}"
+    )

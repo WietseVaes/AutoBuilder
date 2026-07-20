@@ -22,12 +22,17 @@ import json
 import pickle
 import traceback
 
-from inputs import convert_inputs as _convert_inputs
+from inputs import convert_inputs as _convert_inputs, resolve_callable_inputs as _resolve_callable
 
 
 def main():
     script_path, output_path, tests_json = sys.argv[1], sys.argv[2], sys.argv[3]
     tests = json.loads(tests_json)
+
+    try:
+        import test_inputs as _test_inputs_mod
+    except ImportError:
+        _test_inputs_mod = None
 
     ns = {}
     error = None
@@ -56,7 +61,7 @@ def main():
             if fname not in ns or not callable(ns[fname]):
                 result["_missing"].append(name)
                 continue
-            inputs = _convert_inputs(t.get("inputs", []))
+            inputs = _convert_inputs(_resolve_callable(t.get("inputs", []), _test_inputs_mod))
             try:
                 output = ns[fname](*inputs)
                 if t.get("output_index") is not None:

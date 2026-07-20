@@ -1,0 +1,14 @@
+{
+  "test_suite": [
+    {
+      "test_name": "CA1",
+      "description": "apply_twice applies f to x exactly twice",
+      "type": "function",
+      "function_name": "apply_twice",
+      "inputs": ["$double", 1.5],
+      "score": 3,
+      "hint_tolerance": "apply_twice should apply f to x, then apply f to the result: f(f(x)).",
+      "hint_not_defined": "Define a function called apply_twice(f, x)."
+    }
+  ]
+}

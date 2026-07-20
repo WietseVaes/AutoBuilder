@@ -70,6 +70,9 @@ def cmd_grade(args):
         os.makedirs(pkg_dir)
         for fname in VENDOR_FILES:
             shutil.copy(os.path.join(PACKAGE_DIR, fname), os.path.join(pkg_dir, fname))
+        from .build import _has_callable_inputs
+        if args.inputs and _has_callable_inputs(config["test_suite"]):
+            shutil.copy(args.inputs, os.path.join(pkg_dir, "test_inputs.py"))
 
         if not is_julia_solution:
             shutil.copy(args.solution, os.path.join(tmp, "solution.py"))

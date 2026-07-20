@@ -21,10 +21,14 @@ import unittest
 from gradescope_utils.autograder_utils.decorators import number, weight
 
 from autobuilder.comparator import compare
-from autobuilder.inputs import convert_inputs, convert_value
+from autobuilder.inputs import convert_inputs, convert_value, resolve_callable_inputs
 from autobuilder.attempt_recorder import record as _record_attempt
 from autobuilder.plot_check import extract_axes_info, compare_axes_info
 from autobuilder.student_dispatch import get_student_result
+try:
+    from autobuilder import test_inputs as _test_inputs
+except ImportError:
+    _test_inputs = None
 '''
 
 # Python solution: imported at grading time so tests can call solution.func() directly.
@@ -133,7 +137,12 @@ def _get_result_lines(t, name, h_not_defined):
     lines.append("        result = _outcome['value']")
 
     if ttype == "function" and t.get("inputs"):
-        lines.append(f"        inputs = convert_inputs({repr(t.get('inputs', []))})")
+        raw = t.get("inputs", [])
+        has_callable = any(isinstance(x, dict) and "__callable__" in x for x in raw)
+        if has_callable:
+            lines.append(f"        inputs = convert_inputs(resolve_callable_inputs({raw!r}, _test_inputs))")
+        else:
+            lines.append(f"        inputs = convert_inputs({raw!r})")
 
     return lines
 
