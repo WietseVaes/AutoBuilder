@@ -223,7 +223,19 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
     # Validate the solution against the rubric and collect reference values.
     # For Julia solutions the values are baked into the generated tests at build
     # time (the generated test cannot import a .jl file as Python at grading time).
-    ref_values = generate_reference_values(solution_path, config["test_suite"], timeout=config["timeout"])
+    # When callable inputs are used, the runner subprocess needs to know where the
+    # inputs file is (it can't import test_inputs.py from site-packages). We set an
+    # env var pointing at the file so the runner can load it via importlib.
+    _prev_inputs_path = os.environ.get("AUTOBUILDER_TEST_INPUTS_PATH")
+    if inputs_file and _has_callable_inputs(config["test_suite"]):
+        os.environ["AUTOBUILDER_TEST_INPUTS_PATH"] = os.path.abspath(inputs_file)
+    try:
+        ref_values = generate_reference_values(solution_path, config["test_suite"], timeout=config["timeout"])
+    finally:
+        if _prev_inputs_path is None:
+            os.environ.pop("AUTOBUILDER_TEST_INPUTS_PATH", None)
+        else:
+            os.environ["AUTOBUILDER_TEST_INPUTS_PATH"] = _prev_inputs_path
     if is_julia_solution:
         _bake_expected_values(config["test_suite"], ref_values)
 

@@ -17,10 +17,12 @@ Pickles a result dict:
 This is the unit of isolation: one script execution, captured once, with
 everything downstream working off this dict.
 """
+import os
 import sys
 import json
 import pickle
 import traceback
+import importlib.util
 
 from inputs import convert_inputs as _convert_inputs, resolve_callable_inputs as _resolve_callable
 
@@ -32,7 +34,13 @@ def main():
     try:
         import test_inputs as _test_inputs_mod
     except ImportError:
-        _test_inputs_mod = None
+        _path = os.environ.get("AUTOBUILDER_TEST_INPUTS_PATH")
+        if _path and os.path.isfile(_path):
+            _spec = importlib.util.spec_from_file_location("test_inputs", _path)
+            _test_inputs_mod = importlib.util.module_from_spec(_spec)
+            _spec.loader.exec_module(_test_inputs_mod)
+        else:
+            _test_inputs_mod = None
 
     ns = {}
     error = None
@@ -61,8 +69,8 @@ def main():
             if fname not in ns or not callable(ns[fname]):
                 result["_missing"].append(name)
                 continue
-            inputs = _convert_inputs(_resolve_callable(t.get("inputs", []), _test_inputs_mod))
             try:
+                inputs = _convert_inputs(_resolve_callable(t.get("inputs", []), _test_inputs_mod))
                 output = ns[fname](*inputs)
                 if t.get("output_index") is not None:
                     output = output[t["output_index"]]
