@@ -73,6 +73,7 @@ def cmd_grade(args):
         from .build import _has_callable_inputs
         if args.inputs and _has_callable_inputs(config["test_suite"]):
             shutil.copy(args.inputs, os.path.join(pkg_dir, "test_inputs.py"))
+            os.environ["AUTOBUILDER_TEST_INPUTS_PATH"] = os.path.abspath(args.inputs)
 
         if not is_julia_solution:
             shutil.copy(args.solution, os.path.join(tmp, "solution.py"))
@@ -136,6 +137,7 @@ def cmd_grade(args):
         finally:
             sys.path.remove(tmp)
             os.environ.pop("AUTOBUILDER_SOURCE_DIR", None)
+            os.environ.pop("AUTOBUILDER_TEST_INPUTS_PATH", None)
             for mod in ["test_rubric", "solution", "student_submission"]:
                 sys.modules.pop(mod, None)
 

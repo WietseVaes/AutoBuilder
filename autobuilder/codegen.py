@@ -26,8 +26,17 @@ from autobuilder.attempt_recorder import record as _record_attempt
 from autobuilder.plot_check import extract_axes_info, compare_axes_info
 from autobuilder.student_dispatch import get_student_result
 try:
-    from autobuilder import test_inputs as _test_inputs
-except ImportError:
+    import importlib.util as _ilu, os as _os
+    _ti = (_os.environ.get("AUTOBUILDER_TEST_INPUTS_PATH") or
+           _os.path.join(_os.environ.get("AUTOBUILDER_SOURCE_DIR", ""), "autobuilder", "test_inputs.py"))
+    if _ti and _os.path.isfile(_ti):
+        _spec = _ilu.spec_from_file_location("_autobuilder_test_inputs", _ti)
+        _test_inputs = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_test_inputs)
+    else:
+        _test_inputs = None
+    del _ilu, _os, _ti, _spec
+except Exception:
     _test_inputs = None
 '''
 
