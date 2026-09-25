@@ -2,6 +2,8 @@
 
 Builds Gradescope-ready autograder zips from a rubric + solution script, using PyUnit and [gradescope-utils](https://github.com/gradescope/gradescope-utils).
 
+Built with the help of [Anthropic's Claude](https://claude.com).
+
 ## Installation
 
 The repo must be **public** on GitHub. Then:
@@ -380,5 +382,3 @@ cd autobuilder/examples/total_test
 autobuilder grade rubric.json solution.py submission_04_correct.py --inputs test_inputs.py
 autobuilder build rubric.json solution.py --inputs test_inputs.py
 ```
-#   A u t o B u i l d e r  
- 
