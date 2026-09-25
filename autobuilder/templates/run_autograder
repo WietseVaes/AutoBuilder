@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -e
+
+cp -r /autograder/submission/* /autograder/source/
+cd /autograder/source
+
+python3.10 prepare_submission.py
+
+# Pass debug flag if set in rubric.json
+DEBUG=$(python3.10 -c "import json; c=json.load(open('rubric.json')); print('1' if c.get('debug') else '0')" 2>/dev/null || echo "0")
+AUTOBUILDER_DEBUG=$DEBUG python3.10 run_tests.py
