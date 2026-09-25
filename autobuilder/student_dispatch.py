@@ -73,9 +73,9 @@ def get_student_result(spec, timeout=None):
     if timeout is None:
         try:
             with open(os.path.join(SOURCE_DIR, "rubric.json")) as f:
-                timeout = json.load(f).get("timeout", 60)
+                timeout = json.load(f).get("timeout", 600)
         except (OSError, ValueError):
-            timeout = 60
+            timeout = 600
     marker = _load_marker()
     language = marker.get("language")
     submission_path = marker.get("submission_path")

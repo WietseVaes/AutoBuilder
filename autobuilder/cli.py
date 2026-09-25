@@ -42,7 +42,9 @@ def cmd_build(args):
 
 def cmd_grade(args):
     from gradescope_utils.autograder_utils.json_test_runner import JSONTestRunner
-    from .build import _load_inputs_namespace, _resolve_inputs, _resolve_hint_images, _build_all_specs
+    from .build import (
+        _build_all_specs, _load_inputs_namespace, _resolve_hint_images, _resolve_inputs, working_directory,
+    )
 
     with open(args.rubric) as f:
         config = json.load(f)
@@ -60,7 +62,10 @@ def cmd_grade(args):
 
     if is_julia_solution:
         from .reference import generate_reference_values
-        ref_values = generate_reference_values(args.solution, config["test_suite"], timeout=args.timeout)
+        with working_directory(rubric_dir):
+            ref_values = generate_reference_values(
+                os.path.abspath(args.solution), config["test_suite"], timeout=args.timeout
+            )
         _bake_expected_values(config["test_suite"], ref_values)
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -77,6 +82,14 @@ def cmd_grade(args):
 
         if not is_julia_solution:
             shutil.copy(args.solution, os.path.join(tmp, "solution.py"))
+
+        # Data files sit next to the scripts, as in the Gradescope zip.
+        for fname in config.get("extra_files", []):
+            src = os.path.join(rubric_dir, fname)
+            if not os.path.exists(src):
+                print(f"extra_files: '{fname}' not found next to rubric.json (looked at {src})")
+                return 1
+            shutil.copy(src, os.path.join(tmp, fname))
 
         # This rubric is single-language (rubric.json's top-level
         # "language" field) -- the submission's extension must match.
@@ -125,15 +138,23 @@ def cmd_grade(args):
 
             attempt_recorder.clear()
 
-            module = importlib.import_module("test_rubric")
-            suite = unittest.TestLoader().loadTestsFromModule(module)
-
             post_processor = make_post_processor(config, {})
-
             stream = io.StringIO()
-            JSONTestRunner(visibility="visible", stream=stream, buffer=False,
-                            post_processor=post_processor).run(suite)
+            # Importing test_rubric may already run solution.py, so the
+            # import happens inside the data files' folder too.
+            with working_directory(tmp):
+                module = importlib.import_module("test_rubric")
+                suite = unittest.TestLoader().loadTestsFromModule(module)
+                JSONTestRunner(visibility="visible", stream=stream, buffer=False,
+                                post_processor=post_processor).run(suite)
             results = json.loads(stream.getvalue())
+
+            if args.json_out:
+                with open(args.json_out, "w") as f:
+                    json.dump({
+                        "tests": results.get("tests", []),
+                        "total": sum(t.get("score", 0.0) for t in results.get("tests", [])),
+                    }, f)
         finally:
             sys.path.remove(tmp)
             os.environ.pop("AUTOBUILDER_SOURCE_DIR", None)
@@ -175,6 +196,7 @@ def main(argv=None):
     p_grade.add_argument("submission", help="Path to a .py submission to grade")
     p_grade.add_argument("--inputs", help="Path to a .py file defining test input variables")
     p_grade.add_argument("--timeout", type=float, default=60, help="Per-run timeout in seconds")
+    p_grade.add_argument("--json-out", help="Write structured grade results as JSON to this path")
     p_grade.set_defaults(func=cmd_grade)
 
     args = parser.parse_args(argv)

@@ -1,0 +1,19 @@
+{
+  "language": "python",
+  "requirements": ["pandas"],
+  "extra_files": ["data.csv"],
+  "test_suite": [
+    {
+      "test_name": "E1",
+      "type": "variable",
+      "variable_name": "total_y",
+      "description": "total_y is the sum of the 'y' column in data.csv",
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "score": 1,
+      "hint_not_defined": "Define a variable called total_y by reading data.csv with pd.read_csv('data.csv').",
+      "hint_wrong_type": "total_y should be a plain number (float).",
+      "hint_tolerance": "total_y should be the sum of the 'y' column in data.csv."
+    }
+  ]
+}

@@ -18,6 +18,7 @@ import pytest
 EXAMPLES = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "autobuilder", "examples")
 )
+REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 
 
 @dataclasses.dataclass
@@ -263,3 +264,56 @@ def test_grade_callable_wrong():
     assert "apply_twice should apply f to x, then apply f to the result" in g.raw, (
         f"Expected hint not found\n{g.raw}"
     )
+
+
+# ---------------------------------------------------------------------------
+# extra_files (regression: relative-path data files must resolve from the
+# rubric's folder, not from whatever directory the CLI happens to be run
+# from -- Gradescope always runs from /autograder/source).
+# ---------------------------------------------------------------------------
+
+def test_extra_files_build_and_grade_from_different_cwd(tmp_path):
+    d = os.path.join(EXAMPLES, "extra_files_test")
+    rubric = os.path.join(d, "rubric.json")
+    solution = os.path.join(d, "solution.py")
+    submission = os.path.join(d, "submission_01_correct.py")
+    output_zip = os.path.join(str(tmp_path), "autograder.zip")
+
+    # Force `-m autobuilder.cli` to resolve to *this* checkout rather than
+    # whatever "autobuilder" happens to be installed/editable-linked
+    # elsewhere on this machine -- cwd is deliberately not the repo, so it
+    # can no longer rely on cwd shadowing to find the right package.
+    env = dict(os.environ, PYTHONPATH=REPO_ROOT + os.pathsep + os.environ.get("PYTHONPATH", ""))
+
+    build_proc = subprocess.run(
+        [sys.executable, "-m", "autobuilder.cli", "build", rubric, solution, "--output", output_zip],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert build_proc.returncode == 0, (
+        f"autobuilder build failed when run from a different working directory "
+        f"(regression: solution.py's pd.read_csv('data.csv') needs cwd=rubric's folder).\n"
+        f"--- stdout ---\n{build_proc.stdout}\n--- stderr ---\n{build_proc.stderr}"
+    )
+    assert os.path.exists(output_zip)
+
+    grade_proc = subprocess.run(
+        [sys.executable, "-m", "autobuilder.cli", "grade", rubric, solution, submission],
+        cwd=str(tmp_path),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert grade_proc.returncode == 0, (
+        f"autobuilder grade failed when run from a different working directory.\n"
+        f"--- stdout ---\n{grade_proc.stdout}\n--- stderr ---\n{grade_proc.stderr}"
+    )
+    score = None
+    for line in grade_proc.stdout.splitlines():
+        if line.startswith("Total:"):
+            score = float(line.split(":", 1)[1].strip())
+    assert score == 1, f"Score: expected 1, got {score}\n{grade_proc.stdout}"
+    assert grade_proc.stdout.count("[PASS]") == 1, grade_proc.stdout
+    assert grade_proc.stdout.count("[FAIL]") == 0, grade_proc.stdout

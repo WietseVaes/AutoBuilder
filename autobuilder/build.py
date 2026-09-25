@@ -48,6 +48,7 @@ each generated test to the matching adapter. The solution (solution.py)
 is always Python regardless of what students submit.
 """
 import argparse
+import contextlib
 import json
 import os
 import shutil
@@ -193,7 +194,26 @@ def _build_all_specs(test_suite):
     return specs
 
 
+@contextlib.contextmanager
+def working_directory(path):
+    """Temporarily chdir into `path`.
+
+    The instructor's and students' scripts run from the folder that holds the
+    extra_files (data files), as on Gradescope, where run_autograder does
+    `cd /autograder/source` -- so relative paths like
+    `pd.read_csv("data.csv")` work the same locally and on Gradescope.
+    """
+    previous = os.getcwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
 def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=None):
+    # Absolute, since reference values are generated from inside rubric_dir.
+    solution_path = os.path.abspath(solution_path)
     with open(rubric_path) as f:
         config = json.load(f)
 
@@ -230,7 +250,8 @@ def build(rubric_path, solution_path, output_path, inputs_file=None, timeout=Non
     if inputs_file and _has_callable_inputs(config["test_suite"]):
         os.environ["AUTOBUILDER_TEST_INPUTS_PATH"] = os.path.abspath(inputs_file)
     try:
-        ref_values = generate_reference_values(solution_path, config["test_suite"], timeout=config["timeout"])
+        with working_directory(rubric_dir):
+            ref_values = generate_reference_values(solution_path, config["test_suite"], timeout=config["timeout"])
     finally:
         if _prev_inputs_path is None:
             os.environ.pop("AUTOBUILDER_TEST_INPUTS_PATH", None)
