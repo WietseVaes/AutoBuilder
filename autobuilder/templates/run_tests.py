@@ -8,7 +8,9 @@ from autobuilder import attempt_recorder
 from autobuilder.attempts import make_post_processor
 
 SOURCE_DIR = os.path.dirname(os.path.abspath(__file__))
-METADATA_PATH = "/autograder/submission_metadata.json"
+METADATA_PATH = os.environ.get("AUTOBUILDER_METADATA_PATH", "/autograder/submission_metadata.json")
+RESULTS_DIR = os.environ.get("AUTOBUILDER_RESULTS_DIR", "/autograder/results")
+RESULTS_PATH = os.path.join(RESULTS_DIR, "results.json")
 DEBUG_ENV = os.environ.get("AUTOBUILDER_DEBUG", "0")
 
 
@@ -18,6 +20,15 @@ def _load_json(path):
             return json.load(f)
     except (OSError, ValueError):
         return {}
+
+
+def _submission_note():
+    """A student-facing note prepare_submission.py may have left about how
+    it picked (or failed to find) the student's file -- e.g. which file
+    was graded when several were submitted, or which files were received
+    when none were usable."""
+    marker = _load_json(os.path.join(SOURCE_DIR, "student_language.json"))
+    return marker.get("note")
 
 
 def _metadata_debug_summary(metadata):
@@ -120,8 +131,8 @@ def _write_locked_out(message, config, metadata):
         "output": message,
         "tests": tests,
     }
-    os.makedirs("/autograder/results", exist_ok=True)
-    with open("/autograder/results/results.json", "w") as f:
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    with open(RESULTS_PATH, "w") as f:
         json.dump(results, f)
 
 
@@ -130,28 +141,31 @@ if __name__ == '__main__':
     metadata = _load_json(METADATA_PATH)
 
     debug_info = _metadata_debug_summary(metadata) if DEBUG_ENV == "1" else ""
+    submission_note = _submission_note()
+    prefix = "\n\n".join(p for p in (submission_note, debug_info) if p)
 
     lockout_message = _check_locked_out(config, metadata)
     if lockout_message:
         _write_locked_out(lockout_message, config, metadata)
-        if debug_info:
-            with open("/autograder/results/results.json") as f:
+        if prefix:
+            with open(RESULTS_PATH) as f:
                 results = json.load(f)
-            results["output"] = debug_info + "\n\n" + results.get("output", "")
-            with open("/autograder/results/results.json", "w") as f:
+            results["output"] = prefix + "\n\n" + results.get("output", "")
+            with open(RESULTS_PATH, "w") as f:
                 json.dump(results, f)
     else:
         attempt_recorder.clear()
         suite = unittest.defaultTestLoader.discover('tests')
         post_processor = make_post_processor(config, metadata)
 
-        with open('/autograder/results/results.json', 'w') as f:
+        os.makedirs(RESULTS_DIR, exist_ok=True)
+        with open(RESULTS_PATH, 'w') as f:
             JSONTestRunner(visibility='visible', stream=f, buffer=False,
                            post_processor=post_processor).run(suite)
 
-        if debug_info:
-            with open('/autograder/results/results.json') as f:
+        if prefix:
+            with open(RESULTS_PATH) as f:
                 results = json.load(f)
-            results["output"] = debug_info + "\n\n" + (results.get("output") or "")
-            with open('/autograder/results/results.json', 'w') as f:
+            results["output"] = prefix + "\n\n" + (results.get("output") or "")
+            with open(RESULTS_PATH, 'w') as f:
                 json.dump(results, f)

@@ -16,6 +16,10 @@ Pickles a result dict:
 
 This is the unit of isolation: one script execution, captured once, with
 everything downstream working off this dict.
+
+AUTOBUILDER_STUDENT_HELPERS_DIR, if set, is added to sys.path before the
+script runs -- lets a student's entry-point file import a sibling module
+they submitted alongside it (see templates/prepare_submission.py).
 """
 import os
 import sys
@@ -41,6 +45,10 @@ def main():
             _spec.loader.exec_module(_test_inputs_mod)
         else:
             _test_inputs_mod = None
+
+    helpers_dir = os.environ.get("AUTOBUILDER_STUDENT_HELPERS_DIR")
+    if helpers_dir and os.path.isdir(helpers_dir):
+        sys.path.insert(0, helpers_dir)
 
     ns = {}
     error = None

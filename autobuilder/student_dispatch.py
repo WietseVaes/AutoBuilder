@@ -90,6 +90,9 @@ def get_student_result(spec, timeout=None):
             _cache[cache_key] = run_julia_script(submission_path, _all_specs(), timeout=timeout)
         else:
             from .python_adapter import run_python_script
+            helpers_dir = marker.get("helpers_dir")
+            if helpers_dir:
+                os.environ["AUTOBUILDER_STUDENT_HELPERS_DIR"] = helpers_dir
             _cache[cache_key] = run_python_script(submission_path, _all_specs(), timeout=timeout)
 
     run_result = _cache[cache_key]
