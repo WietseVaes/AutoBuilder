@@ -19,9 +19,10 @@ exactly one of these is meaningful:
                      ("message" says so)
 
 Like the Julia autobuilder:
-  - if the script crashes part-way, everything it defined before the crash
-    is still graded; the error (with its line number) is shown once at the
-    top of the results
+  - if the script crashes part-way: with rubric.json "grade_until_crash":
+    true, everything it defined before the crash is still graded and the
+    error (with its line number) is shown once at the top of the results;
+    with false (the default), every test fails with the crash message
   - if it runs out of time, tests that already finished keep their result
 
 Messages for the top of the results are written to _grading_notes.json in
@@ -83,12 +84,25 @@ def _summarize_error(detail, script_path=None):
     return message
 
 
+def _rubric():
+    if "rubric" not in _cache:
+        try:
+            with open(os.path.join(SOURCE_DIR, "rubric.json"), encoding="utf-8") as f:
+                _cache["rubric"] = json.load(f)
+        except (OSError, ValueError):
+            _cache["rubric"] = {}
+    return _cache["rubric"]
+
+
 def _timeout():
-    try:
-        with open(os.path.join(SOURCE_DIR, "rubric.json")) as f:
-            return json.load(f).get("timeout", 600)
-    except (OSError, ValueError):
-        return 600
+    return _rubric().get("timeout", 600)
+
+
+def _grade_until_crash():
+    """rubric.json "grade_until_crash" (default false): when the student's
+    script crashes part-way, grade what it defined before the crash (true),
+    or fail every test with the crash message (false)."""
+    return _rubric().get("grade_until_crash", False) is True
 
 
 def _write_notes(notes):
@@ -141,7 +155,7 @@ def get_student_result(spec, timeout=None):
         _cache[submission_path] = run_result
 
         notes = []
-        if run_result.get("_script_error"):
+        if run_result.get("_script_error") and _grade_until_crash():
             notes.append(
                 "Your code stopped with an error: "
                 f"{_summarize_error(run_result['_script_error'], submission_path)}\n"
@@ -156,6 +170,10 @@ def get_student_result(spec, timeout=None):
 
     if run_result.get("_error"):
         return {"missing": True, "error_detail": _summarize_error(run_result["_error"], submission_path)}
+    if run_result.get("_script_error") and not _grade_until_crash():
+        # The script crashed: every test fails with the crash message, e.g.
+        # "Variable 'x' is not defined. (NameError: name 'y' is not defined)".
+        return {"missing": True, "error_detail": _summarize_error(run_result["_script_error"])}
     if name in run_result.get("_unfinished", []):
         if run_result.get("_timed_out"):
             message = (f"Your code did not finish within {_fmt_seconds(timeout)} seconds, "

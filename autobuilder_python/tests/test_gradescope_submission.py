@@ -277,9 +277,9 @@ def test_notebook_solution_builds_and_grades(tmp_path):
 
 
 def test_script_crash_grades_what_was_defined_before_it(tmp_path):
-    """Like the Julia autobuilder: a crash part-way keeps everything defined
-    before it, and the error is shown once at the top of results.json."""
-    config = _rubric_config()
+    """With "grade_until_crash": true, a crash part-way keeps everything
+    defined before it, and the error is shown once at the top of results.json."""
+    config = _rubric_config(grade_until_crash=True)
     config["test_suite"].append({"test_name": "check_y", "type": "variable", "variable_name": "y",
                                  "score": 5, "description": "y should be 1"})
     source_dir = _build_source_dir(tmp_path, config, "x = 42\ny = 1\n")
@@ -290,3 +290,19 @@ def test_script_crash_grades_what_was_defined_before_it(tmp_path):
     assert by_number["check_y"]["score"] == 0
     assert "Your code stopped with an error: NameError" in results["output"]
     assert "(line 2)" in results["output"]
+
+
+def test_script_crash_fails_every_test_by_default(tmp_path):
+    """Without "grade_until_crash" (default false), a crash fails every test
+    with the crash message, as before v0.7.0."""
+    config = _rubric_config()
+    config["test_suite"].append({"test_name": "check_y", "type": "variable", "variable_name": "y",
+                                 "score": 5, "description": "y should be 1"})
+    source_dir = _build_source_dir(tmp_path, config, "x = 42\ny = 1\n")
+    submission_dir = _write_submission(tmp_path, {"hw.py": "x = 42\nprint(undefined_name)\ny = 1\n"})
+    results, _ = _run_gradescope_flow(source_dir, submission_dir, tmp_path)
+    assert results["score"] == 0
+    for t in results["tests"]:
+        assert t["score"] == 0
+        assert "is not defined. (NameError: name 'undefined_name' is not defined)" in t["output"]
+    assert "Your code stopped with an error" not in (results.get("output") or "")

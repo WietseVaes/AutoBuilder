@@ -1,7 +1,12 @@
 {
   "language": "julia",
-  "requirements": ["SpecialFunctions"],
-  "extra_files": ["data.txt"],
+  "requirements": [
+    "SpecialFunctions"
+  ],
+  "extra_files": [
+    "data.txt"
+  ],
+  "grade_until_crash": true,
   "test_suite": [
     {
       "test_name": "P1",
@@ -25,7 +30,9 @@
       "test_name": "P3",
       "type": "function",
       "function_name": "gamma_ratio",
-      "inputs": [4.5],
+      "inputs": [
+        4.5
+      ],
       "description": "gamma_ratio(4.5) uses SpecialFunctions.gamma",
       "score": 1,
       "hint_tolerance": "gamma(x + 1) / gamma(x) should equal x.",
@@ -35,10 +42,15 @@
       "test_name": "P4",
       "type": "function",
       "function_name": "trapezoid",
-      "inputs": ["$f", "$a", "$b", "$n"],
+      "inputs": [
+        "$f",
+        "$a",
+        "$b",
+        "$n"
+      ],
       "description": "trapezoid(f, 0, 1, 1000) integrates x^2 (a function as input)",
-      "rtol": 1e-6,
-      "atol": 1e-6,
+      "rtol": 1e-06,
+      "atol": 1e-06,
       "score": 2,
       "hint_tolerance": "Weight the two end points by 1/2 and all interior points by 1."
     },
@@ -46,7 +58,14 @@
       "test_name": "P5",
       "type": "function",
       "function_name": "summary_stats",
-      "inputs": [[1.0, 2.0, 3.0, 4.0]],
+      "inputs": [
+        [
+          1.0,
+          2.0,
+          3.0,
+          4.0
+        ]
+      ],
       "description": "summary_stats returns a named tuple (mean=..., std=...)",
       "score": 1,
       "hint_wrong_type": "Return a named tuple: (mean=..., std=...).",
@@ -56,7 +75,20 @@
       "test_name": "P6",
       "type": "function",
       "function_name": "column_sums",
-      "inputs": [[[1, 2, 3], [4, 5, 6]]],
+      "inputs": [
+        [
+          [
+            1,
+            2,
+            3
+          ],
+          [
+            4,
+            5,
+            6
+          ]
+        ]
+      ],
       "description": "column_sums of a 2×3 matrix (each inner list is a row)",
       "score": 1,
       "attempts": 2,

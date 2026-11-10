@@ -21,7 +21,7 @@ A rubric declares its language with `"language": "python"` (the default) or `"la
 - **Test types:** variables, functions (with inputs, including functions as inputs), DataFrames and plots (matplotlib / Plots.jl). Students get a short message per test plus your hints, never the expected answer.
 - **Hints:** five kinds (not defined, wrong type, wrong size, NaN, wrong value), optionally with an image. `hint_*_python` / `hint_*_julia` give language-specific wording in a shared rubric.
 - **Attempt limits:** a score per question that locks in the best attempt.
-- **Robust grading:** if the student's script crashes part-way, everything defined before the crash is still graded; if it runs out of time, finished tests keep their result.
+- **Crashes and timeouts:** if the student's script crashes part-way, every test fails with the crash message, or, with `"grade_until_crash": true` in the rubric, everything defined before the crash is still graded. If it runs out of time, finished tests keep their result.
 - **Submissions:** any file name, notebooks, several files, and data files you ship with the assignment.
 
 ## Differences

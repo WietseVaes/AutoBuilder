@@ -387,6 +387,21 @@ end
     @test score(res) == 1
     @test occursin("did not finish within 30", out)
 
+    # A crash part-way: by default every test fails with the crash message;
+    # with "grade_until_crash": true, what was defined before it is graded.
+    f = joinpath(tmp, "crash.jl"); write(f, "x = 42\nundefined_thing + 1\ndouble(v) = 2v\n")
+    res, out = quiet_grade(rubric, solution, f)
+    @test score(res) == 0
+    @test occursin("Variable 'x' is not defined. (UndefVarError: `undefined_thing` not defined (at crash.jl:2))", out)
+    @test occursin("Hint: Define x.", out)
+    @test !occursin("Your code stopped with an error", out)
+    r5 = deepcopy(SIMPLE_RUBRIC); r5["grade_until_crash"] = true
+    rubric5, solution5 = assignment(joinpath(tmp, "e"); rubric=r5, solution=SIMPLE_SOLUTION)
+    res, out = quiet_grade(rubric5, solution5, f)
+    @test score(res) == 1
+    @test occursin("Your code stopped with an error: UndefVarError: `undefined_thing` not defined (at crash.jl:2)", out)
+    @test occursin("Function 'double' is not defined. Your code stopped with an error before reaching it.", out)
+
     # Pkg calls in a submission are skipped instead of stopping the script.
     f = joinpath(tmp, "pkgcalls.jl")
     write(f, "using Pkg; Pkg.add(\"Example\")\nimport Pkg\nPkg.activate(\".\")\nPkg.instantiate()\n" * SIMPLE_SOLUTION)

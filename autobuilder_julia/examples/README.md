@@ -35,7 +35,7 @@ On Gradescope: create a **Programming Assignment** → Configure Autograder → 
 | `submission_03_variables_fixed.jl` | 14 | RK4 missing `/6`; `rk4_solve` returns 2×10. |
 | `submission_04_correct.jl` | 25 | |
 | `submission_05_correct_notebook.ipynb` | 25 | A notebook with a `Pkg.add("Optim")` cell, which the grader skips. |
-| `submission_06_crashes_halfway.jl` | 16 | At the top: "Your code stopped with an error: UndefVarError: \`wieghts\` not defined (at ...:25)". T1-T8 are still graded. |
+| `submission_06_crashes_halfway.jl` | 16 | At the top: "Your code stopped with an error: UndefVarError: \`wieghts\` not defined (at ...:25)". T1-T8 are still graded, because this rubric sets `"grade_until_crash": true`. Without it (the default), every test would fail with that error. |
 | `submission_07_infinite_loop.jl` | 16 | Takes the full **180 s**. T1-T8 keep their points; T9-T12 say the code did not finish in time. |
 | `submission_08_two_files/` (upload **both** files) | 25 | `homework.jl` includes `rk4.jl`, and `homework.jl` is graded. |
 

@@ -7,6 +7,7 @@
     "data.csv"
   ],
   "timeout": 180,
+  "grade_until_crash": true,
   "test_suite": [
     {
       "test_name": "T1",
