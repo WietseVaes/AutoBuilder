@@ -114,7 +114,7 @@ function test_target(t)
     return calls, name, calls ? "Function '$name'" : "Variable '$name'"
 end
 
-"""Outcome when the script crashed and "grade_until_crash" is off: every test fails with the crash message."""
+"""Outcome when the script crashed or timed out and "grade_until_crash" is off: every test fails with the error."""
 function crash_outcome(t, crash)
     _, _, what = test_target(t)
     return (false, false, "$what is not defined. ($crash)" * hint_suffix(hint(t, "hint_not_defined", "hint_wrong_size")))
@@ -165,10 +165,10 @@ function grade(rubric, build_info, metadata)
     note === nothing || push!(notes, note)
 
     # rubric.json "grade_until_crash" (default false): when the student's
-    # script crashes part-way, grade everything it defined before the crash
-    # (true), or fail every test with the crash message (false).
+    # script crashes part-way or runs out of time, keep what was graded
+    # before that (true), or fail every test with the error (false).
     grade_until_crash = get(rubric, "grade_until_crash", false) === true
-    crash = nothing   # the crash message, when every test fails because of it
+    crash = nothing   # the error message, when every test fails because of it
 
     by_test = Dict{String,Any}()
     timed_out = false
@@ -191,7 +191,11 @@ function grade(rubric, build_info, metadata)
                 end
             end
         end
-        timed_out && push!(notes, "Your code did not finish within $timeout seconds.")
+        if timed_out && grade_until_crash
+            push!(notes, "Your code did not finish within $timeout seconds.")
+        elseif timed_out && crash === nothing
+            crash = "This did not finish within $timeout seconds."
+        end
     end
 
     results_tests = Any[]

@@ -306,3 +306,35 @@ def test_script_crash_fails_every_test_by_default(tmp_path):
         assert t["score"] == 0
         assert "is not defined. (NameError: name 'undefined_name' is not defined)" in t["output"]
     assert "Your code stopped with an error" not in (results.get("output") or "")
+
+
+def _loop_config(**overrides):
+    """x (a variable) is graded first, then double (a function) hangs."""
+    config = _rubric_config(timeout=5, **overrides)
+    config["test_suite"].append({"test_name": "check_double", "type": "function", "function_name": "double",
+                                 "inputs": [2.0], "score": 5, "description": "double(2.0)"})
+    return config
+
+
+_LOOP_SUBMISSION = {"hw.py": "x = 42\ndef double(v):\n    while True:\n        pass\n"}
+
+
+def test_timeout_fails_every_test_by_default(tmp_path):
+    """Without "grade_until_crash" (default false), running out of time
+    fails every test with the timeout, even ones that finished."""
+    source_dir = _build_source_dir(tmp_path, _loop_config(), "x = 42\ndef double(v):\n    return 2 * v\n")
+    submission_dir = _write_submission(tmp_path, _LOOP_SUBMISSION)
+    results, _ = _run_gradescope_flow(source_dir, submission_dir, tmp_path)
+    assert results["score"] == 0
+    for t in results["tests"]:
+        assert "is not defined. (This did not finish within 5 seconds.)" in t["output"]
+
+
+def test_timeout_keeps_finished_tests_with_grade_until_crash(tmp_path):
+    source_dir = _build_source_dir(tmp_path, _loop_config(grade_until_crash=True),
+                                   "x = 42\ndef double(v):\n    return 2 * v\n")
+    submission_dir = _write_submission(tmp_path, _LOOP_SUBMISSION)
+    results, _ = _run_gradescope_flow(source_dir, submission_dir, tmp_path)
+    by_number = {t["number"]: t for t in results["tests"]}
+    assert by_number["check_x"]["score"] == 10
+    assert "did not finish within 5 seconds, so this test could not be completed" in by_number["check_double"]["output"]

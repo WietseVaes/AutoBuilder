@@ -148,7 +148,7 @@ This grades one submission with the same generated tests Gradescope runs, so the
 | `requirements` | pip packages installed by `setup.sh` on Gradescope |
 | `extra_files` | Data files (`.csv` etc.) placed next to `rubric.json`, copied into the autograder zip and available at grading time |
 | `timeout` | Seconds a submission may run in total (default 10). Also used when checking `solution.py` at build time, and by `autobuilder grade` |
-| `grade_until_crash` | What happens when the student's script crashes part-way. `false` (default): every test fails with the crash message, e.g. `Variable 'x' is not defined. (NameError: ...)`. `true`: everything defined before the crash is still graded, and the error is shown once at the top |
+| `grade_until_crash` | What happens when the student's script crashes part-way or runs out of time. `false` (default): nothing is graded; every test fails with the error, e.g. `Variable 'x' is not defined. (NameError: ...)` or `Variable 'x' is not defined. (This did not finish within 10 seconds.)`. `true`: everything graded before the crash or timeout keeps its result, and the error is shown once at the top |
 | `debug` | `true` adds metadata diagnostics to the Gradescope results page (useful for troubleshooting attempt counters) |
 
 ### Test entry fields
@@ -363,7 +363,7 @@ If several candidate files are submitted, the one that defines the most names th
 What students see when their code goes wrong:
 
 - **The script crashes part-way** (e.g. a `NameError` on line 30): by default every test fails with the crash message, e.g. `Variable 'x' is not defined. (NameError: name 'y' is not defined)`. With `"grade_until_crash": true` in the rubric, everything defined *before* that line is still graded instead: the error and its line number are shown once at the top of the results, and tests for names defined after it say "not defined (your code stopped with an error before reaching it)".
-- **The code runs out of time** (e.g. an infinite loop inside a function): tests that already finished keep their result. The rest say "Your code did not finish within N seconds, so this test could not be completed."
+- **The code runs out of time** (e.g. an infinite loop inside a function): by default every test fails with `... is not defined. (This did not finish within N seconds.)`. With `"grade_until_crash": true`, tests that already finished keep their result, and the rest say "Your code did not finish within N seconds, so this test could not be completed."
 - **A function raises an error:** that test shows the error message and the line in the student's file, e.g. `ZeroDivisionError: division by zero (line 12)`.
 
 `autobuilder grade` shows the same messages, and uses the same time limit as the zip.
@@ -372,7 +372,7 @@ What students see when their code goes wrong:
 
 ## Worked examples
 
-- `examples/total_test/` (**tests the most**): strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem, with submissions showing a progression from 0/20 to 20/20 (four `.py`, one `.ipynb`), plus `submission_06_crashes_halfway.py` (16/20: graded up to the crash, since this rubric sets `"grade_until_crash": true`) and `submission_07_infinite_loop.py` (10/20 after the 10 s timeout). `solution_notebook.ipynb` is the same solution as a notebook. Every test entry's `rubric.json` has all five hint types filled in, as a reference.
+- `examples/total_test/` (**tests the most**): strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem, with submissions showing a progression from 0/20 to 20/20 (four `.py`, one `.ipynb`), plus `submission_06_crashes_halfway.py` (16/20: graded up to the crash, since this rubric sets `"grade_until_crash": true`) and `submission_07_infinite_loop.py` (10/20 after the 10 s timeout, also thanks to `grade_until_crash`). `solution_notebook.ipynb` is the same solution as a notebook. Every test entry's `rubric.json` has all five hint types filled in, as a reference.
 - `examples/dataframe_test/`: a `pandas.DataFrame` built from scratch, a derived column, and a groupby summary -- three submissions showing a column-name mismatch and a value mismatch cascading into a dependent test.
 - `examples/plot_test/`: a numpy array plus a matplotlib plot of it, with separate `hint_wrong_size`/`hint_tolerance` hints on both the array test and the plot test. The plot test's `hint_image` (a rendered reference plot, `expected_damped_wave.png`) is attached only to its tolerance-failure path -- five submissions demonstrate the image appearing only when the *values* are wrong (not the size), and every plot mismatch being listed individually rather than stopping at the first.
 - `examples/python/`: strings, booleans, arrays, functions with tuple outputs, and two plot tests (a line plot and a bar chart), with five submissions.

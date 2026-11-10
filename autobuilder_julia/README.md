@@ -248,7 +248,7 @@ Wrote autograder.zip
 | `extra_files` | Data files placed next to `rubric.json` (subfolders work), copied into the zip at the same relative path. Code runs from that folder, so `readlines("data.csv")` works |
 | `timeout` | Seconds a submission may run in total, including loading packages (default 600) |
 | `julia_version` | Julia version installed on Gradescope (default: the version you build with) |
-| `grade_until_crash` | What happens when the student's script crashes part-way. `false` (default): every test fails with the crash message, e.g. `Variable 'x' is not defined. (UndefVarError: ...)`. `true`: everything defined before the crash is still graded, and the error is shown once at the top |
+| `grade_until_crash` | What happens when the student's script crashes part-way or runs out of time. `false` (default): nothing is graded; every test fails with the error, e.g. `Variable 'x' is not defined. (UndefVarError: ...)` or `Variable 'x' is not defined. (This did not finish within 600 seconds.)`. `true`: everything graded before the crash or timeout keeps its result, and the error is shown once at the top |
 | `debug` | `true` adds everything the code printed while grading to the results page |
 
 ### Test entry fields
@@ -514,7 +514,7 @@ Unicode names (`λ`, `σ²`, `x₀`, `∇f`, typed as `\lambda<tab>` etc.) work 
 What students see when their code goes wrong:
 
 - **The script crashes part-way** (e.g. an `UndefVarError` on line 30): by default every test fails with the crash message, e.g. ``Variable 'x' is not defined. (UndefVarError: `y` not defined (at hw3.jl:30))``. With `"grade_until_crash": true` in the rubric, everything defined *before* that line is still graded instead: the error and its line number are shown once at the top of the results, and tests for names defined after it say "not defined. Your code stopped with an error before reaching it."
-- **The code runs out of time** (e.g. an infinite loop inside a function): tests that already finished keep their result. The rest say "Your code did not finish within N seconds, so this test could not be completed."
+- **The code runs out of time** (e.g. an infinite loop inside a function): by default every test fails with `... is not defined. (This did not finish within N seconds.)`. With `"grade_until_crash": true`, tests that already finished keep their result, and the rest say "Your code did not finish within N seconds, so this test could not be completed."
 - **A function raises an error:** that test shows the error message and the line in the student's file, e.g. `` UndefVarError: `x` not defined (at hw3.jl:12) ``.
 
 `grade` shows the same messages, and uses the same time limit as the zip.
@@ -525,7 +525,7 @@ What students see when their code goes wrong:
 
 All in [`examples/`](examples). [`examples/README.md`](examples/README.md) is a step-by-step plan for trying them on Gradescope, with every submission's expected score.
 
-- `examples/total_test/` (**tests the most**): strings, vectors, a range, a dot product, RK4 functions (vector and 2×11 matrix results) with inputs from `test_inputs.jl`, a package (Optim), a data file, a hint image, attempt limits, and eight submissions from 0/25 to 25/25 -- including a notebook, a script that crashes part-way (graded up to the crash: this rubric sets `"grade_until_crash": true`), an infinite loop, and a two-file submission.
+- `examples/total_test/` (**tests the most**): strings, vectors, a range, a dot product, RK4 functions (vector and 2×11 matrix results) with inputs from `test_inputs.jl`, a package (Optim), a data file, a hint image, attempt limits, and eight submissions from 0/25 to 25/25 -- including a notebook, a script that crashes part-way and an infinite loop (both graded up to that point: this rubric sets `"grade_until_crash": true`), and a two-file submission.
 - `examples/plot_test/`: Plots.jl plot tests (a line plot with legend, two lines with fixed y-limits, a bar chart stored in a variable) and Unicode names (`λ`, `σ²`, `λ₀`), with submissions that get the labels wrong, the data wrong, or return no plot at all.
 - `examples/function_unit_test/`, `expected_test/`, `callable_test/`, `extra_files_test/`, `dataframe_test/`: Julia versions of the Python examples, each with submissions that are wrong in a specific way.
 - `examples/basics/`, `arrays_and_functions/`, `packages_and_inputs/`: smaller examples (matrices, tuples, structs, named tuples, a package).
@@ -547,7 +547,7 @@ run_autograder ─► grader/run.jl         finds the student's file, writes res
                           student file → module Submission  ┘ student value, compared
 ```
 
-The worker writes each test's result as soon as it is known, which is why a hang keeps the earlier results (and a crash too, with `"grade_until_crash": true`). The grader (`src/grader/`) uses only the standard library and is copied into every zip.
+The worker writes each test's result as soon as it is known, which is what lets `"grade_until_crash": true` keep the earlier results after a hang or crash. The grader (`src/grader/`) uses only the standard library and is copied into every zip.
 
 The zip contains `run_autograder`, `setup.sh`, your `rubric.json` (unchanged), `build_info.json`, `solution.jl`, the optional `test_inputs.jl` and `env/` (your packages), the `grader/` folder, and your `extra_files`.
 

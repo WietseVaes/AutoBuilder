@@ -381,11 +381,20 @@ end
     @test score(res) == 0
     @test occursin("SpecialFunctions", out)
 
-    # A function that never returns: earlier tests keep their result.
+    # The same assignment with "grade_until_crash": true.
+    r5 = deepcopy(SIMPLE_RUBRIC); r5["grade_until_crash"] = true
+    rubric5, solution5 = assignment(joinpath(tmp, "e"); rubric=r5, solution=SIMPLE_SOLUTION)
+
+    # A function that never returns. By default nothing is graded: every test
+    # fails with the timeout; with "grade_until_crash": true, earlier tests
+    # keep their result.
     f = joinpath(tmp, "loop.jl"); write(f, "x = 42\nfunction double(v)\n while true; end\nend\n")
     res, out = quiet_grade(rubric, solution, f; timeout=30)
+    @test score(res) == 0
+    @test occursin("Variable 'x' is not defined. (This did not finish within 30 seconds.)", out)
+    res, out = quiet_grade(rubric5, solution5, f; timeout=30)
     @test score(res) == 1
-    @test occursin("did not finish within 30", out)
+    @test occursin("Your code did not finish within 30 seconds, so this test could not be completed.", out)
 
     # A crash part-way: by default every test fails with the crash message;
     # with "grade_until_crash": true, what was defined before it is graded.
@@ -395,8 +404,6 @@ end
     @test occursin("Variable 'x' is not defined. (UndefVarError: `undefined_thing` not defined (at crash.jl:2))", out)
     @test occursin("Hint: Define x.", out)
     @test !occursin("Your code stopped with an error", out)
-    r5 = deepcopy(SIMPLE_RUBRIC); r5["grade_until_crash"] = true
-    rubric5, solution5 = assignment(joinpath(tmp, "e"); rubric=r5, solution=SIMPLE_SOLUTION)
     res, out = quiet_grade(rubric5, solution5, f)
     @test score(res) == 1
     @test occursin("Your code stopped with an error: UndefVarError: `undefined_thing` not defined (at crash.jl:2)", out)

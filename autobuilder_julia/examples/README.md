@@ -36,7 +36,7 @@ On Gradescope: create a **Programming Assignment** → Configure Autograder → 
 | `submission_04_correct.jl` | 25 | |
 | `submission_05_correct_notebook.ipynb` | 25 | A notebook with a `Pkg.add("Optim")` cell, which the grader skips. |
 | `submission_06_crashes_halfway.jl` | 16 | At the top: "Your code stopped with an error: UndefVarError: \`wieghts\` not defined (at ...:25)". T1-T8 are still graded, because this rubric sets `"grade_until_crash": true`. Without it (the default), every test would fail with that error. |
-| `submission_07_infinite_loop.jl` | 16 | Takes the full **180 s**. T1-T8 keep their points; T9-T12 say the code did not finish in time. |
+| `submission_07_infinite_loop.jl` | 16 | Takes the full **180 s**. T1-T8 keep their points (again because of `"grade_until_crash": true`); T9-T12 say the code did not finish in time. |
 | `submission_08_two_files/` (upload **both** files) | 25 | `homework.jl` includes `rk4.jl`, and `homework.jl` is graded. |
 
 **Attempt limits and best scores.** As in the Python version, each student's score per attempt-limited test is their best so far. Once a student has full marks on all of those tests, further submissions are not graded ("All questions have been answered correctly..."). So:
