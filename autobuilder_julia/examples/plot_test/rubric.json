@@ -1,0 +1,111 @@
+{
+  "language": "julia",
+  "requirements": [
+    "Plots"
+  ],
+  "test_suite": [
+    {
+      "test_name": "U1",
+      "type": "variable",
+      "variable_name": "λ",
+      "description": "λ (typed \\lambda<tab>) is the decay rate 0.2",
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "score": 1,
+      "hint_not_defined": "Define the decay rate as λ (type \\lambda then Tab), not as lam or lambda.",
+      "hint_tolerance": "The decay rate is 0.2."
+    },
+    {
+      "test_name": "U2",
+      "type": "function",
+      "function_name": "σ²",
+      "inputs": [
+        [
+          1.0,
+          2.0,
+          3.0,
+          4.0
+        ]
+      ],
+      "description": "σ²([1, 2, 3, 4]) is the sample variance",
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "score": 2,
+      "hint_not_defined": "Define a function σ²(v) (type \\sigma<tab>\\^2<tab>).",
+      "hint_tolerance": "The sample variance divides by n - 1, not n."
+    },
+    {
+      "test_name": "A1",
+      "type": "variable",
+      "variable_name": "damped_wave",
+      "description": "damped_wave is exp(-λt) sin(ωt) on 100 points of [0, 10]",
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "score": 4,
+      "hint_not_defined": "Define a variable called damped_wave.",
+      "hint_wrong_size": "damped_wave should have 100 values -- one per time point in t.",
+      "hint_tolerance": "Check your formula: damped_wave = exp.(-λ .* t) .* sin.(ω .* t)."
+    },
+    {
+      "test_name": "P1",
+      "type": "plot",
+      "function_name": "make_damped_wave_plot",
+      "inputs": [],
+      "description": "make_damped_wave_plot() produces the correct labelled, titled plot with legend",
+      "plot_checks": [
+        "xlabel",
+        "ylabel",
+        "title",
+        "legend_labels",
+        "n_lines",
+        "line_data"
+      ],
+      "rtol": 0.01,
+      "atol": 0.01,
+      "score": 6,
+      "hint_not_defined": "Define a function called make_damped_wave_plot() that returns a plot.",
+      "hint_wrong_type": "make_damped_wave_plot() should return the plot: end it with plot(...), not display(...).",
+      "hint_wrong_size": "Plot exactly one line, with one label in the legend, over 100 time points.",
+      "hint_tolerance": "Check your axis labels ('time (s)', 'amplitude'), title ('Damped Sine Wave'), legend label ('damped wave'), and the plotted data itself.",
+      "hint_image": "expected_damped_wave.png"
+    },
+    {
+      "test_name": "P2",
+      "type": "plot",
+      "function_name": "envelope_plot",
+      "inputs": [
+        0.5
+      ],
+      "description": "envelope_plot(0.5) draws the upper and lower envelope with fixed y-limits",
+      "plot_checks": [
+        "n_lines",
+        "line_data",
+        "ylim",
+        "legend_labels"
+      ],
+      "score": 4,
+      "hint_not_defined": "Define a function called envelope_plot(λ₀).",
+      "hint_wrong_type": "envelope_plot should return a plot.",
+      "hint_wrong_size": "Draw two lines: exp(-λ₀t) and -exp(-λ₀t) (use plot!(p, ...) for the second).",
+      "hint_tolerance": "Labels 'upper' and 'lower', and ylims=(-1.1, 1.1)."
+    },
+    {
+      "test_name": "P3",
+      "type": "plot",
+      "variable_name": "bars_plot",
+      "description": "bars_plot is a bar chart of counts per group",
+      "plot_checks": [
+        "title",
+        "n_bars",
+        "bar_heights"
+      ],
+      "rtol": 0,
+      "atol": 0,
+      "score": 3,
+      "hint_not_defined": "Store the bar chart in a variable called bars_plot.",
+      "hint_wrong_type": "bars_plot should be the plot returned by bar(...), not the data.",
+      "hint_wrong_size": "There are 4 groups, so 4 bars.",
+      "hint_tolerance": "Title 'Counts per group', bar heights [3, 7, 5, 2]."
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "language": "julia",
+  "requirements": ["SpecialFunctions"],
+  "extra_files": ["data.txt"],
+  "test_suite": [
+    {
+      "test_name": "P1",
+      "type": "variable",
+      "variable_name": "measurements",
+      "description": "measurements holds the numbers from data.txt",
+      "score": 1,
+      "hint_not_defined": "Read data.txt with readlines and parse each line as a Float64.",
+      "hint_wrong_size": "data.txt has 4 lines, so measurements should have 4 numbers."
+    },
+    {
+      "test_name": "P2",
+      "type": "variable",
+      "variable_name": "origin_shift",
+      "description": "origin_shift is Point(1.0, -2.0)",
+      "score": 1,
+      "hint_wrong_type": "Define a struct Point with fields x and y, then origin_shift = Point(1.0, -2.0).",
+      "hint_tolerance": "Check the signs of x and y."
+    },
+    {
+      "test_name": "P3",
+      "type": "function",
+      "function_name": "gamma_ratio",
+      "inputs": [4.5],
+      "description": "gamma_ratio(4.5) uses SpecialFunctions.gamma",
+      "score": 1,
+      "hint_tolerance": "gamma(x + 1) / gamma(x) should equal x.",
+      "hint_tolerance_julia": "Use gamma from SpecialFunctions: gamma(x + 1) / gamma(x)."
+    },
+    {
+      "test_name": "P4",
+      "type": "function",
+      "function_name": "trapezoid",
+      "inputs": ["$f", "$a", "$b", "$n"],
+      "description": "trapezoid(f, 0, 1, 1000) integrates x^2 (a function as input)",
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "score": 2,
+      "hint_tolerance": "Weight the two end points by 1/2 and all interior points by 1."
+    },
+    {
+      "test_name": "P5",
+      "type": "function",
+      "function_name": "summary_stats",
+      "inputs": [[1.0, 2.0, 3.0, 4.0]],
+      "description": "summary_stats returns a named tuple (mean=..., std=...)",
+      "score": 1,
+      "hint_wrong_type": "Return a named tuple: (mean=..., std=...).",
+      "hint_tolerance": "Use mean and std from the Statistics standard library."
+    },
+    {
+      "test_name": "P6",
+      "type": "function",
+      "function_name": "column_sums",
+      "inputs": [[[1, 2, 3], [4, 5, 6]]],
+      "description": "column_sums of a 2×3 matrix (each inner list is a row)",
+      "score": 1,
+      "attempts": 2,
+      "hint_wrong_size": "There is one sum per column, so the result has 3 numbers.",
+      "hint_tolerance": "Sum down each column: sum(A; dims=1)."
+    }
+  ]
+}

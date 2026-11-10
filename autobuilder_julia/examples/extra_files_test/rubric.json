@@ -1,0 +1,32 @@
+{
+  "language": "julia",
+  "extra_files": [
+    "data.csv",
+    "inputs/scale.txt"
+  ],
+  "test_suite": [
+    {
+      "test_name": "E1",
+      "type": "variable",
+      "variable_name": "total_y",
+      "description": "total_y is the sum of the 'y' column in data.csv",
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "score": 1,
+      "hint_not_defined": "Define a variable called total_y by reading data.csv.",
+      "hint_wrong_type": "total_y should be a plain number (Float64).",
+      "hint_tolerance": "total_y should be the sum of the 'y' column in data.csv."
+    },
+    {
+      "test_name": "E2",
+      "type": "variable",
+      "variable_name": "scaled_y",
+      "description": "scaled_y is the y column times the number in inputs/scale.txt",
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "score": 1,
+      "hint_not_defined": "Read inputs/scale.txt (a file in a subfolder) and multiply the y column by it.",
+      "hint_tolerance": "Multiply each y value by the number in inputs/scale.txt."
+    }
+  ]
+}
