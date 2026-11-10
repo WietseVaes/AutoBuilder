@@ -7,9 +7,11 @@ on:
     branches: [main]
 
 jobs:
-  test:
+  python:
     runs-on: ubuntu-latest
-
+    defaults:
+      run:
+        working-directory: autobuilder_python
     steps:
       - uses: actions/checkout@v4
 
@@ -17,15 +19,24 @@ jobs:
         with:
           python-version: "3.11"
 
-      - uses: julia-actions/setup-julia@v2
-        with:
-          version: "1"
-
-      - name: Install Julia packages
-        run: julia -e 'import Pkg; Pkg.add("JSON")'
-
       - name: Install package and test dependencies
         run: pip install -e ".[test]"
 
       - name: Run tests
         run: pytest tests/ -v
+
+  julia:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        julia-version: ["1.10", "1.11", "1.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+
+      - name: Run tests
+        run: julia --project=autobuilder_julia -e 'using Pkg; Pkg.test()'
