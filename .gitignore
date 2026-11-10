@@ -4,3 +4,4 @@ build/
 *.egg-info/
 *.zip
 .venv/
+autobuilder_julia/Manifest.toml

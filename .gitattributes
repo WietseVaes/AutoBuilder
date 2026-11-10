@@ -1,0 +1,4 @@
+# Shell scripts run on Gradescope (Linux) must keep LF line endings,
+# even when checked out on Windows with core.autocrlf=true.
+*.sh            text eol=lf
+run_autograder  text eol=lf
