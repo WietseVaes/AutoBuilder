@@ -1,0 +1,112 @@
+{
+  "language": "julia",
+  "timeout": 120,
+  "grade_until_crash": true,
+  "precheck": true,
+  "combine_questions": true,
+  "late_penalties": [
+    {
+      "after": "2026-11-30T23:59:00-08:00",
+      "penalty": 0.1
+    },
+    {
+      "after": "2026-12-02T23:59:00-08:00",
+      "penalty": 0.5
+    }
+  ],
+  "test_suite": [
+    {
+      "test_name": "0a",
+      "question": "Precheck",
+      "type": "variable",
+      "variable_name": "x0",
+      "description": "x0 is the given starting value 1.0",
+      "score": 0,
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "hint_not_defined": "Define x0 = 1.0 (given in the assignment).",
+      "hint_tolerance": "x0 is given in the assignment: 1.0."
+    },
+    {
+      "test_name": "0b",
+      "question": "Precheck",
+      "type": "variable",
+      "variable_name": "h",
+      "description": "h is the given step size 0.1",
+      "score": 0,
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "hint_not_defined": "Define h = 0.1 (given in the assignment).",
+      "hint_tolerance": "h is given in the assignment: 0.1."
+    },
+    {
+      "test_name": "1a",
+      "type": "variable",
+      "variable_name": "total",
+      "description": "total is the sum of 1, 2, ..., 10",
+      "score": 1,
+      "attempts": 3,
+      "rtol": 0,
+      "atol": 0,
+      "hint_not_defined": "Define a variable called total.",
+      "hint_tolerance": "Include both 1 and 10."
+    },
+    {
+      "test_name": "1b",
+      "type": "variable",
+      "variable_name": "squares",
+      "description": "squares holds the squares of 1, ..., 5",
+      "score": 2,
+      "attempts": 3,
+      "rtol": 0,
+      "atol": 0,
+      "hint_not_defined": "Define a vector called squares.",
+      "hint_wrong_size": "squares should hold 5 numbers.",
+      "hint_tolerance": "Square each of 1, 2, 3, 4, 5."
+    },
+    {
+      "test_name": "2a",
+      "type": "function",
+      "function_name": "f",
+      "inputs": [
+        2
+      ],
+      "description": "f(2) for f(x) = x^2 + 1",
+      "score": 2,
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "hint_not_defined": "Define a function f(x).",
+      "hint_tolerance": "f(x) = x^2 + 1, so f(2) = 5."
+    },
+    {
+      "test_name": "2b",
+      "type": "function",
+      "function_name": "f",
+      "inputs": [
+        -1
+      ],
+      "description": "f(-1) for f(x) = x^2 + 1",
+      "score": 1,
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "hint_not_defined": "Define a function f(x).",
+      "hint_tolerance": "Check negative inputs: (-1)^2 = 1."
+    },
+    {
+      "test_name": "3",
+      "type": "function",
+      "function_name": "euler_step",
+      "inputs": [
+        1.0,
+        0.1
+      ],
+      "description": "euler_step(1.0, 0.1) for x' = -x",
+      "score": 3,
+      "attempts": 5,
+      "rtol": 1e-06,
+      "atol": 1e-06,
+      "hint_not_defined": "Define a function euler_step(x, h).",
+      "hint_tolerance": "One Euler step for x' = -x: x + h * (-x)."
+    }
+  ]
+}

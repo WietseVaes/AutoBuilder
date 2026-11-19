@@ -124,7 +124,7 @@ autobuilder grade rubric.json solution.py submission.py
 autobuilder grade rubric.json solution.py submission.py --inputs test_inputs.py
 ```
 
-This grades one submission with the same generated tests Gradescope runs, so the output matches what students will see (apart from attempt counts, which depend on earlier submissions). The solution can be a `.py` file or a notebook.
+This grades one submission with the same generated tests Gradescope runs, so the output matches what students will see (apart from attempt counts, which depend on earlier submissions). `--now 2026-11-21T10:00:00-08:00` pretends the submission was made at that time, to try `late_penalties`. The solution can be a `.py` file or a notebook.
 
 ---
 
@@ -137,6 +137,9 @@ This grades one submission with the same generated tests Gradescope runs, so the
   "extra_files": ["train_data.csv", "test_data.csv"],
   "timeout": 10,
   "grade_until_crash": false,
+  "precheck": false,
+  "combine_questions": false,
+  "late_penalties": [],
   "debug": false,
   "test_suite": [ ... ]
 }
@@ -149,6 +152,9 @@ This grades one submission with the same generated tests Gradescope runs, so the
 | `extra_files` | Data files (`.csv` etc.) placed next to `rubric.json`, copied into the autograder zip and available at grading time |
 | `timeout` | Seconds a submission may run in total (default 10). Also used when checking `solution.py` at build time, and by `autobuilder grade` |
 | `grade_until_crash` | What happens when the student's script crashes part-way or runs out of time. `false` (default): nothing is graded; every test fails with the error, e.g. `Variable 'x' is not defined. (NameError: ...)` or `Variable 'x' is not defined. (This did not finish within 10 seconds.)`. `true`: everything graded before the crash or timeout keeps its result, and the error is shown once at the top |
+| `precheck` | `true` lets students ask for a precheck run with `Precheck = True` in their file: only the zero-point tests run (see [Precheck runs](#precheck-runs)). Default `false` |
+| `combine_questions` | `true` shows one Gradescope test per question (`1a`, `1b` -> Question 1), listing only what went wrong (see [Combining questions](#combining-questions)). Default `false` |
+| `late_penalties` | List of `{"after": time, "penalty": fraction}`: answers fixed after that time earn `1 - penalty` of their points (see [Late penalties](#late-penalties)) |
 | `debug` | `true` adds metadata diagnostics to the Gradescope results page (useful for troubleshooting attempt counters) |
 
 ### Test entry fields
@@ -162,6 +168,7 @@ This grades one submission with the same generated tests Gradescope runs, so the
 | `rtol`, `atol` | ✓ | Tolerances for `numpy.allclose`. Use `0` for exact/string comparison |
 | `attempts` | | Max number of attempted submissions for this question (see below) |
 | `allow_tries` | | `true` = no attempt cap, just track running best (default `false`) |
+| `question` | | Question this test belongs to with `combine_questions` (default: `test_name` without trailing letters) |
 
 ### Hint fields
 
@@ -349,6 +356,67 @@ Numpy arrays are automatically serialised to lists when embedded in the generate
 Once all attempt-limited questions in a rubric are exhausted (or full credit is earned on all of them), further submissions are blocked with a message and the previous results are carried forward unchanged.
 
 Attempt tracking requires Gradescope's "Allow resubmission" setting to be enabled on the assignment.
+
+### How results look on Gradescope
+
+All output is sent to Gradescope as Markdown (`"output_format": "md"`): bold title lines, one bullet per part with its details on ▸ lines, ✅ / ❌ marks, and code blocks for tracebacks. Text that comes from the student's code (error messages, values) is escaped, so it is shown literally. `grade` prints the same output in the terminal without the Markdown marks.
+
+### Precheck runs
+
+```json
+"precheck": true
+```
+
+With `"precheck": true` in the rubric, a student can put `Precheck = True` at the top of their file (any capitalisation of the name). That submission is then a **precheck run**:
+
+- only the tests with `"score": 0` are run and shown (use them for "is `x` defined", "is it a vector of length 5", ...);
+- the scored tests are not run at all and nothing is said about them, so a slow or hanging function costs no time;
+- no attempts are used;
+- the scores of the previous submission are carried forward as hidden tests, so a precheck submission that becomes the active one does not lose any points.
+
+The results start with "**Precheck run:** only the precheck questions were checked. In order to receive any credit, turn `precheck = False`." Errors are still reported as usual. Without `Precheck = True` (or with `Precheck = False`) the submission is graded normally. If the rubric does not set `"precheck": true`, the variable is ignored. Put it near the top: if the script crashes before reaching it, the run is a normal graded run.
+
+### Combining questions
+
+```json
+"combine_questions": true
+```
+
+Groups the tests of each question into one Gradescope test with the summed score, e.g. `1a`, `1b`, `1c` become "Question 1". By default a test belongs to the question named by its `test_name` without the trailing letters (`1a` -> `1`, `Q2b` -> `Q2`, `T3` stays `T3`); set `"question": "1"` on a test to choose its question yourself. Only what went wrong is listed, in rubric order:
+
+> **❌ Incorrect answers:**
+>
+> - **Part a: `a`** — a is one
+>   ▸ Your value is not within the required tolerance.
+>   ▸ **Hint:** Count again.
+>   ▸ **Attempts:** 1/5 (4 left)
+> - **Part b: `b`** — b is two
+>   ▸ Variable 'b' is not defined.
+>   ▸ **Hint:** Define b.
+
+Each part is named after its `test_name`: `1b` shows as "Part b: `b`" (with the variable or function name), a test named just `3` shows as "`euler_step`", and any other name (e.g. `"Energy check"`) is shown as written. The description follows after the dash.
+
+A part that already earned full credit in an earlier submission is done: it uses no more attempts, counts as correct, and is listed under **⚠️ Previously correct, now incorrect (full credit kept):** instead of as incorrect, whatever the new submission does. Parts fixed after a deadline are listed under **✅ Correct, with the 10% late penalty:** with the points they earned. When everything is right the output is **✅ All parts correct.** Attempts and best scores are still kept per test.
+
+### Late penalties
+
+```json
+"late_penalties": [
+  {"after": "2026-11-20T23:59:00-08:00", "penalty": 0.1},
+  {"after": "2026-11-22T23:59:00-08:00", "penalty": 0.5}
+]
+```
+
+A submission made after an `"after"` time earns `1 - penalty` of the points for answers that are correct **now but were not correct before**. The last time it is past counts: here 10% off after Nov 20, 50% off after Nov 22. Answers that were already correct earlier keep their full credit. With late penalties every test keeps the best score earned so far (with or without `attempts`), so a late resubmission never lowers a score.
+
+A question is finished once it has the most credit it can still get: full credit, or `1 - penalty` of its points when late (a question that was correct before the deadline keeps its full credit). A finished question uses no more attempts. When every question is finished, the student is told "✅ **All questions are correct.** With the 20% late penalty included, this is the most credit you can receive (7.8/9). Further submissions will not be graded.", and later submissions are not graded again. For example, with 20% off after the deadline: Question 1 (3 points) correct on time, Questions 2 and 3 (3 points each) only after it gives 3 + 0.8 × 6 = 7.8/9, not 0.8 × 9 = 7.2.
+
+Late submissions start with "**Late submission:** submitted after Nov 20, 2026 at 11:59 PM PST, so a 10% late penalty applies to questions that were not already correct before." The deadline is shown in its own time zone: `-08:00` as PST, `-07:00` as PDT, `Z` as UTC, others as e.g. UTC+1.
+
+- Each `"after"` needs a date, a time and a **time zone offset** (`-08:00`, `+01:00` or `Z`); the build rejects times without one. Mind daylight saving time: Seattle is `-07:00` in summer and `-08:00` in winter.
+- `"penalty"` is a fraction: `0.1` = 10%, `1` = no points.
+- The time used is when the student **submitted** (Gradescope's `created_at`), not when the autograder runs, so "Regrade all submissions" does not make everyone late. Per-student extensions in Gradescope are not taken into account.
+- Try it locally with `--now`, e.g. `grade ... --now 2026-11-21T10:00:00-08:00`.
 
 ---
 

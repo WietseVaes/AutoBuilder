@@ -2,11 +2,13 @@
 #
 #   autobuilder build RUBRIC SOLUTION [--inputs F] [--output F] [--timeout S]
 #   autobuilder grade RUBRIC SOLUTION SUBMISSION [--inputs F] [--timeout S] [--json-out F]
+#                     [--metadata F] [--now TIME]
 
 const USAGE = """
 Usage:
   autobuilder build RUBRIC SOLUTION [--inputs test_inputs.jl] [--output autograder.zip] [--timeout SECONDS]
   autobuilder grade RUBRIC SOLUTION SUBMISSION [--inputs test_inputs.jl] [--timeout SECONDS] [--json-out results.json]
+                    [--metadata submission_metadata.json] [--now 2026-11-21T10:00:00-08:00]
 
   build   Build a Gradescope autograder zip (your solution is checked against the rubric first).
   grade   Grade one submission (a .jl/.ipynb file or a folder) locally, exactly as Gradescope would.
@@ -51,10 +53,11 @@ function main(args=ARGS)
             build(pos[1], pos[2]; inputs=get(opts, "inputs", nothing),
                   output=get(opts, "output", "autograder.zip"), timeout=_timeout(opts))
         elseif command == "grade"
-            pos, opts = _parse_args(rest, ("inputs", "timeout", "json-out", "metadata"))
+            pos, opts = _parse_args(rest, ("inputs", "timeout", "json-out", "metadata", "now"))
             length(pos) == 3 || error("grade needs RUBRIC, SOLUTION and SUBMISSION.\n\n$USAGE")
             grade(pos[1], pos[2], pos[3]; inputs=get(opts, "inputs", nothing), timeout=_timeout(opts),
-                  json_out=get(opts, "json-out", nothing), metadata=get(opts, "metadata", nothing))
+                  json_out=get(opts, "json-out", nothing), metadata=get(opts, "metadata", nothing),
+                  now=get(opts, "now", nothing))
         else
             error("Unknown command \"$command\".\n\n$USAGE")
         end

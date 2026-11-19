@@ -48,6 +48,13 @@ SOURCE_DIR = os.environ.get(
 MARKER_PATH = os.path.join(SOURCE_DIR, "student_language.json")
 NOTES_PATH = os.path.join(SOURCE_DIR, "_grading_notes.json")
 
+
+def _state_path():
+    """{"precheck": true} when the student asked for a precheck run (read by
+    attempts.py). Resolved per call: `autobuilder grade` uses a new temp
+    folder each time, in one process."""
+    return os.path.join(os.environ.get("AUTOBUILDER_SOURCE_DIR", SOURCE_DIR), "_run_state.json")
+
 _cache = {}
 
 
@@ -128,6 +135,21 @@ def clear_notes():
         pass
 
 
+def read_state():
+    try:
+        with open(_state_path()) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def clear_state():
+    try:
+        os.remove(_state_path())
+    except OSError:
+        pass
+
+
 def _fmt_seconds(t):
     return int(t) if float(t).is_integer() else t
 
@@ -150,8 +172,15 @@ def get_student_result(spec, timeout=None):
         helpers_dir = marker.get("helpers_dir")
         if helpers_dir:
             os.environ["AUTOBUILDER_STUDENT_HELPERS_DIR"] = helpers_dir
+        # rubric.json "precheck": true lets students ask for a precheck run.
+        os.environ["AUTOBUILDER_PRECHECK_ENABLED"] = "1" if _rubric().get("precheck") is True else "0"
         run_result = run_python_script(submission_path, _all_specs(), timeout=timeout)
         _cache[submission_path] = run_result
+        try:
+            with open(_state_path(), "w") as f:
+                json.dump({"precheck": bool(run_result.get("_precheck"))}, f)
+        except OSError:
+            pass
 
         notes = []
         if run_result.get("_script_error") and _grade_until_crash():
@@ -167,6 +196,11 @@ def get_student_result(spec, timeout=None):
     run_result = _cache[submission_path]
     name = spec["name"]
 
+    ran = (name in run_result["values"] or name in run_result["_missing"]
+           or name in run_result["_call_errors"] or name in run_result["_unfinished"])
+    if run_result.get("_precheck") and not ran:
+        # A scored test in a precheck run: not run, and dropped from the results.
+        return {"missing": True, "error_detail": "not run (precheck)"}
     if run_result.get("_error"):
         return {"missing": True, "error_detail": _summarize_error(run_result["_error"], submission_path)}
     if not _grade_until_crash():

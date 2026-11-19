@@ -21,6 +21,7 @@ export build, grade
 # here; the rest runs as separate scripts.
 include("grader/json.jl")
 include("grader/submission.jl")
+include("grader/scoring.jl")   # late_penalties_problem, for checking the rubric
 const PLOT_CHECKS = Set(["xlabel", "ylabel", "title", "xlim", "ylim", "n_lines", "line_data",
                          "n_bars", "bar_heights", "legend_labels"])   # as in grader/plots.jl
 

@@ -11,7 +11,7 @@ module G
     include(joinpath(Main.GRADER, "values.jl"))
     include(joinpath(Main.GRADER, "compare.jl"))
     include(joinpath(Main.GRADER, "submission.jl"))
-    include(joinpath(Main.GRADER, "attempts.jl"))
+    include(joinpath(Main.GRADER, "attempts.jl"))   # + scoring.jl
 end
 
 status(s, r; rtol=1e-6, atol=1e-6) = G.compare_values(s, r, rtol, atol)[1]
@@ -304,7 +304,7 @@ EXAMPLE_CASES = [
     ("dataframe_test", "submission_02_wrong_columns.jl", 3, "but got columns [\"Name\", \"score\", \"passed\"]"),
     ("dataframe_test", "submission_03_wrong_threshold.jl", 0, "Column 'average_score': Your value is not within the required tolerance."),
     ("plot_test", "submission_01_correct.jl", 20, "Total: 20"),
-    ("plot_test", "submission_02_wrong_labels.jl", 10, "  - 'xlabel' does not match.\n         - 'title' does not match.\n         - Legend labels do not match."),
+    ("plot_test", "submission_02_wrong_labels.jl", 10, "> The following issues were found:\n       > 'xlabel' does not match.\n       > 'title' does not match.\n       > Legend labels do not match."),
     ("plot_test", "submission_03_wrong_data.jl", 3, "Expected 2 for 'n_lines', but got 1."),
     ("plot_test", "submission_04_not_a_plot.jl", 0, "Expected a Plots.jl plot (the result of plot(...), scatter(...), bar(...), ...), but got type Nothing."),
     ("plot_test", "submission_05_saves_and_displays.jl", 20, "Total: 20"),
@@ -500,6 +500,173 @@ end
     out = read(`$(Base.julia_cmd()) --startup-file=no $cli grade $(joinpath(d, "rubric.json")) $(joinpath(d, "solution.jl")) $(joinpath(d, "submission_03_missing_function.jl"))`, String)
     @test occursin("Total: 3", out)
     @test !success(`$(Base.julia_cmd()) --startup-file=no $cli frobnicate`)
+end
+
+
+@testset "late penalty times" begin
+    @test G.parse_time("2026-11-20T23:59:00-08:00") == G.DateTime(2026, 11, 21, 7, 59)
+    @test G.parse_time("2026-11-21T09:00:00.123456-0800") == G.DateTime(2026, 11, 21, 17, 0, 0, 123)
+    @test G.parse_time("2026-11-21T07:59Z") == G.DateTime(2026, 11, 21, 7, 59)
+    @test G.parse_time("2026-11-20 23:59") === nothing          # no time zone
+    r = Dict("late_penalties" => [Dict("after" => "2026-11-22T23:59:00-08:00", "penalty" => 0.5),
+                                  Dict("after" => "2026-11-20T23:59:00-08:00", "penalty" => 0.1)])
+    @test G.late_penalty(r, G.parse_time("2026-11-20T23:59:00-08:00")) == (0.0, nothing)   # on the dot: on time
+    @test G.late_penalty(r, G.parse_time("2026-11-21T00:00:00-08:00"))[1] == 0.1
+    @test G.late_penalty(r, G.parse_time("2026-11-23T00:00:00-08:00"))[1] == 0.5
+    @test G.question_key(Dict("test_name" => "1a")) == "1"
+    @test G.question_key(Dict("test_name" => "Q2b")) == "Q2"
+    @test G.question_key(Dict("test_name" => "T3")) == "T3"
+    @test G.question_key(Dict("test_name" => "1a", "question" => "Intro")) == "Intro"
+    @test G.format_time("2026-11-20T23:59:00-08:00") == "Nov 20, 2026 at 11:59 PM PST"
+    @test G.format_time("2026-06-01T09:05:00-07:00") == "Jun 1, 2026 at 9:05 AM PDT"
+    @test G.format_time("2026-06-01T12:00:00Z") == "Jun 1, 2026 at 12:00 PM UTC"
+    @test G.format_time("2026-06-01T00:30:00+05:30") == "Jun 1, 2026 at 12:30 AM UTC+5:30"
+    @test G.late_penalty(r, G.parse_time("2026-11-21T00:00:00-08:00"))[2] == "Nov 20, 2026 at 11:59 PM PST"
+    @test G.md_escape("got <b>*x*</b> for my_var") == "got \\<b\\>\\*x\\*\\</b\\> for my\\_var"
+    @test G.part_label(Dict("test_name" => "1b", "variable_name" => "squares")) == "Part b: `squares`"
+    @test G.part_label(Dict("test_name" => "3", "type" => "function", "function_name" => "euler_step")) == "`euler_step`"
+    @test G.part_label(Dict("test_name" => "Energy check", "variable_name" => "E")) == "Energy check"
+end
+
+@testset "precheck, combine_questions, late_penalties" begin
+    tmp = mktempdir()
+    prev(res, when="2026-11-01T12:00:00+00:00") = Dict("submission_time" => when, "score" => res["score"], "results" => res)
+    function meta(name, d)
+        p = joinpath(tmp, name * ".json")
+        write(p, G.json_string(d))
+        return p
+    end
+    sub(name, code) = (f = joinpath(tmp, name * ".jl"); write(f, code); f)
+    visible(res) = [t for t in res["tests"] if get(t, "visibility", "visible") != "hidden"]
+
+    # ── precheck ──
+    rp = deepcopy(SIMPLE_RUBRIC)
+    rp["precheck"] = true
+    rp["timeout"] = 20
+    rp["test_suite"][1]["attempts"] = 3
+    push!(rp["test_suite"], Dict("test_name" => "F1", "type" => "variable", "variable_name" => "x",
+                                 "description" => "x is defined", "score" => 0))
+    rp["test_suite"][2]["attempts"] = 3
+    rubric, solution = assignment(joinpath(tmp, "pre"); rubric=rp, solution=SIMPLE_SOLUTION)
+
+    # double() would hang: in a precheck it is never called.
+    res, out = quiet_grade(rubric, solution, sub("pre1", "Precheck = true\nx = 42\ndouble(v) = (while true end)\n"))
+    @test [t["number"] for t in visible(res)] == ["F1"]
+    @test visible(res)[1]["status"] == "passed" && visible(res)[1]["extra_data"] == Dict("precheck" => true)
+    @test occursin("Precheck run", res["output"]) && !occursin("did not finish", out)
+
+    first, _ = quiet_grade(rubric, solution, sub("pre2", "x = 0\ndouble(v) = 2v\n"))
+    @test score(first) == 1
+    second, _ = quiet_grade(rubric, solution, sub("pre3", "precheck = true\nx = 0\n");
+                            metadata=meta("m2", Dict("previous_submissions" => [prev(first)])))
+    @test score(second) == 1
+    hidden = Dict(t["number"] => t for t in second["tests"] if get(t, "visibility", "") == "hidden")
+    @test hidden["T2"]["extra_data"]["attempts_used"] == 1
+    third, out = quiet_grade(rubric, solution, sub("pre4", "x = 42\ndouble(v) = 0\n");
+                             metadata=meta("m3", Dict("previous_submissions" =>
+                                 [prev(first), prev(second, "2026-11-02T12:00:00+00:00")])))
+    t2 = only(t for t in third["tests"] if t["number"] == "T2")
+    @test t2["extra_data"]["attempts_used"] == 1 && Float64(t2["score"]) == 1   # done: no attempt used
+    @test t2["status"] == "passed"
+    @test occursin("Previously correct", t2["output"])
+
+    # Without "precheck": true in the rubric the variable is ignored.
+    rp2 = deepcopy(rp); rp2["precheck"] = false
+    rubric2, solution2 = assignment(joinpath(tmp, "pre_off"); rubric=rp2, solution=SIMPLE_SOLUTION)
+    res, _ = quiet_grade(rubric2, solution2, sub("pre5", "precheck = true\n" * SIMPLE_SOLUTION))
+    @test score(res) == 2 && length(res["tests"]) == 3
+
+    # ── combine_questions ──
+    rc = Dict("language" => "julia", "combine_questions" => true, "test_suite" => [
+        Dict("test_name" => "1a", "type" => "variable", "variable_name" => "a", "score" => 1,
+             "description" => "a is one", "hint_tolerance" => "Count again.", "attempts" => 5),
+        Dict("test_name" => "1b", "type" => "variable", "variable_name" => "b", "score" => 2,
+             "description" => "b is two", "hint_not_defined" => "Define b.", "attempts" => 5),
+        Dict("test_name" => "2a", "type" => "function", "function_name" => "f", "inputs" => [3],
+             "score" => 3, "description" => "f(3) is nine")])
+    rubric, solution = assignment(joinpath(tmp, "comb"); rubric=rc, solution="a = 1\nb = 2\nf(x) = x^2\n")
+    @test occursin("Solution check: 3/3", sprint(io -> build(rubric, solution; output=joinpath(tmp, "c.zip"), io=io)))
+    res, _ = quiet_grade(rubric, solution, sub("comb1", "a = 5\nf(x) = x^2\n"))
+    @test all(t -> !haskey(t, "number"), res["tests"])   # Gradescope shows "Question 1", not "1) Question 1"
+    q = Dict(replace(t["name"], "Question " => "") => t for t in res["tests"])
+    @test sort(collect(keys(q))) == ["1", "2"]
+    @test q["1"]["name"] == "Question 1" && Float64(q["1"]["max_score"]) == 3 && Float64(q["1"]["score"]) == 0
+    @test Float64(q["2"]["score"]) == 3 && q["2"]["output"] == "**✅ All parts correct.**"
+    o = q["1"]["output"]
+    @test startswith(o, "**❌ Incorrect answers:**") && q["1"]["output_format"] == "md"
+    @test occursin("- **Part a: `a`** — a is one", o) && occursin("  ▸ **Hint:** Count again.", o)
+    @test occursin("  ▸ **Attempts:** 1/5 (4 left)", o)
+    @test occursin("- **Part b: `b`** — b is two", o) && occursin("Define b.", o)
+    @test findfirst("a is one", o)[1] < findfirst("b is two", o)[1]
+
+    r1, _ = quiet_grade(rubric, solution, sub("comb2", "a = 1\nb = 0\n"))
+    r2, _ = quiet_grade(rubric, solution, sub("comb3", "a = 7\nb = 2\n");
+                        metadata=meta("mc", Dict("previous_submissions" => [prev(r1)])))
+    q1 = only(t for t in r2["tests"] if t["name"] == "Question 1")
+    @test Float64(q1["score"]) == 3
+    @test q1["status"] == "passed" &&
+          q1["output"] == "**⚠️ Previously correct, now incorrect (full credit kept):**\n\n- **Part a: `a`** — a is one"
+    @test q1["extra_data"]["parts"]["1a"]["attempts_used"] == 1   # no attempt used once correct
+
+    # ── late_penalties ──
+    rl = deepcopy(SIMPLE_RUBRIC)
+    rl["test_suite"][2]["score"] = 4
+    rl["late_penalties"] = [Dict("after" => "2026-11-20T23:59:00-08:00", "penalty" => 0.1),
+                            Dict("after" => "2026-11-22T23:59:00-08:00", "penalty" => 0.5)]
+    rubric, solution = assignment(joinpath(tmp, "late"); rubric=rl, solution=SIMPLE_SOLUTION)
+    l1, _ = quiet_grade(rubric, solution, sub("late1", "x = 42\ndouble(v) = 0\n");
+                        metadata=meta("ml1", Dict("created_at" => "2026-11-20T10:00:00-08:00")))
+    @test score(l1) == 1 && !occursin("Late", l1["output"])
+    l2, _ = quiet_grade(rubric, solution, sub("late2", "x = 0\ndouble(v) = 2v\n");
+                        metadata=meta("ml2", Dict("created_at" => "2026-11-21T09:00:00.123456-08:00",
+                                                  "previous_submissions" => [prev(l1)])))
+    t = Dict(r["number"] => r for r in l2["tests"])
+    @test Float64(t["T1"]["score"]) == 1 && occursin("Previously correct", t["T1"]["output"])
+    @test Float64(t["T2"]["score"]) ≈ 3.6 && occursin("10% late penalty", t["T2"]["output"])
+    @test occursin("**Late submission:** submitted after Nov 20, 2026 at 11:59 PM PST", l2["output"])
+    @test l2["output_format"] == "md" && t["T2"]["output_format"] == "md"
+    # Even later (50%), but the 3.6 already earned is kept; --now overrides the clock.
+    l3, _ = quiet_grade(rubric, solution, sub("late3", SIMPLE_SOLUTION); now="2026-11-23T09:00:00-08:00",
+                        metadata=meta("ml3", Dict("previous_submissions" =>
+                            [prev(l1), prev(l2, "2026-11-21T17:00:00+00:00")])))
+    @test score(l3) ≈ 4.6
+    # T1 correct on time (1/1) + T2 fixed late (4 * 0.9): the most still possible is 4.6/5,
+    # said once; the later submission is not graded again.
+    @test occursin("this is the most credit you can receive (4.6/5)", l2["output"])
+    @test startswith(l3["output"], "✅ **All questions are correct.** With the 50% late penalty included")
+
+    bad = deepcopy(SIMPLE_RUBRIC)
+    bad["late_penalties"] = [Dict("after" => "2026-11-20 23:59", "penalty" => 0.1)]
+    rb, sb = assignment(joinpath(tmp, "bad"); rubric=bad, solution=SIMPLE_SOLUTION)
+    err = try build(rb, sb; output=joinpath(tmp, "bad.zip"), io=devnull); nothing catch e; e end
+    @test err isa ErrorException && occursin("time zone", err.msg)
+
+    # ── Question 1 on time, Questions 2 and 3 late ──
+    # Question 1 keeps full credit, 2 and 3 get the 20% penalty: the most
+    # possible is 3 + 0.8 * (3 + 3) = 7.8 (not 9 * 0.8 = 7.2), then locked.
+    rm_ = deepcopy(rc)
+    push!(rm_["test_suite"], Dict("test_name" => "3", "type" => "variable", "variable_name" => "c",
+                                  "score" => 3, "description" => "c is three"))
+    rm_["late_penalties"] = [Dict("after" => "2026-11-20T23:59:00-08:00", "penalty" => 0.2)]
+    full = "a = 1\nb = 2\nf(x) = x^2\nc = 3\n"
+    rubric, solution = assignment(joinpath(tmp, "mixed"); rubric=rm_, solution=full)
+    m1, _ = quiet_grade(rubric, solution, sub("mixed1", "a = 1\nb = 2\nc = 0\n");
+                        metadata=meta("mm1", Dict("created_at" => "2026-11-20T10:00:00-08:00")))
+    @test score(m1) == 3 && !occursin("Late", m1["output"])
+    m2, _ = quiet_grade(rubric, solution, sub("mixed2", full);
+                        metadata=meta("mm2", Dict("created_at" => "2026-11-21T09:00:00-08:00",
+                                                  "previous_submissions" => [prev(m1)])))
+    q = Dict(t["name"] => t for t in m2["tests"])
+    @test Float64(q["Question 1"]["score"]) == 3 && q["Question 1"]["output"] == "**✅ All parts correct.**"
+    @test Float64(q["Question 2"]["score"]) ≈ 2.4 && Float64(q["Question 3"]["score"]) ≈ 2.4
+    @test occursin("**✅ Correct, with the 20% late penalty:**", q["Question 2"]["output"])
+    @test occursin("- **Part a: `f`** — f(3) is nine (2.4/3)", q["Question 2"]["output"])
+    @test score(m2) ≈ 7.8
+    @test occursin("the most credit you can receive (7.8/9)", m2["output"])
+    m3, _ = quiet_grade(rubric, solution, sub("mixed3", "a = 0\n");
+                        metadata=meta("mm3", Dict("created_at" => "2026-11-22T09:00:00-08:00",
+                                                  "previous_submissions" => [prev(m1), prev(m2, "2026-11-21T17:00:00+00:00")])))
+    @test score(m3) ≈ 7.8 && occursin("the most credit you can receive (7.8/9)", m3["output"])
 end
 
 end

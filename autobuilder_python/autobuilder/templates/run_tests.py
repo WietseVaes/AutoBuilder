@@ -5,8 +5,9 @@ import unittest
 from gradescope_utils.autograder_utils.json_test_runner import JSONTestRunner
 
 from autobuilder import attempt_recorder
-from autobuilder.attempts import make_post_processor
+from autobuilder.attempts import make_post_processor, locked_out_message, locked_out_results
 from autobuilder import student_dispatch
+from autobuilder.scoring import md_text
 
 SOURCE_DIR = os.path.dirname(os.path.abspath(__file__))
 METADATA_PATH = os.environ.get("AUTOBUILDER_METADATA_PATH", "/autograder/submission_metadata.json")
@@ -49,114 +50,27 @@ def _metadata_debug_summary(metadata):
     return "\n".join(lines)
 
 
-def _check_locked_out(config, metadata):
-    """Return a message if all attempt-limited questions are exhausted
-    (either full credit earned or all attempts used), otherwise None."""
-    test_suite = config.get("test_suite", [])
-    limited = [t for t in test_suite if t.get("attempts")]
-    if not limited:
-        return None
-
-    prev = (metadata.get("previous_submissions") or [])
-    if not prev:
-        return None
-
-    # previous_submissions[0] is the most recent submission.
-    last_results = (prev[0] or {}).get("results") or {}
-    by_number = {}
-    for t in last_results.get("tests") or []:
-        num = t.get("number")
-        if num:
-            by_number[num] = t
-
-    exhausted = []
-    not_exhausted = []
-    for t in limited:
-        name = t["test_name"]
-        limit = int(t["attempts"])
-        max_score = float(t.get("score", 0))
-        allow_tries = bool(t.get("allow_tries", False))
-
-        result = by_number.get(name) or {}
-        extra = result.get("extra_data") or {}
-        attempts_used = int(extra.get("attempts_used", 0))
-        best_score = float(extra.get("best_score", 0.0))
-
-        if allow_tries:
-            # Unlimited -- only lock out if full credit already earned.
-            if best_score >= max_score:
-                exhausted.append(name)
-            else:
-                not_exhausted.append(name)
-        else:
-            if attempts_used >= limit or best_score >= max_score:
-                exhausted.append(name)
-            else:
-                not_exhausted.append(name)
-
-    if not_exhausted:
-        return None  # at least one question still has attempts left
-
-    # All attempt-limited questions are done.
-    earned = sum(
-        float(((by_number.get(t["test_name"]) or {}).get("extra_data") or {}).get("best_score", 0.0))
-        for t in limited
-    )
-    total_possible = sum(float(t.get("score", 0)) for t in limited)
-
-    if earned >= total_possible:
-        return (
-            "All questions have been answered correctly -- "
-            "no further submissions are needed. Your score has been locked in."
-        )
-    else:
-        return (
-            "All attempts have been used. "
-            f"Your locked score is {earned:g}/{total_possible:g}. "
-            "No further submissions will be graded."
-        )
-
-
-def _write_locked_out(message, config, metadata):
-    """Write a results.json that carries forward the previous locked scores
-    and shows the lockout message, without re-running any tests."""
-    prev = (metadata.get("previous_submissions") or [])
-    last_results = ((prev[0] or {}).get("results") or {}) if prev else {}
-
-    # Carry forward the previous test results unchanged.
-    tests = list(last_results.get("tests") or [])
-    total = sum(float(t.get("score", 0.0) or 0.0) for t in tests)
-
-    results = {
-        "score": total,
-        "output": message,
-        "tests": tests,
-    }
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    with open(RESULTS_PATH, "w") as f:
-        json.dump(results, f)
-
-
 if __name__ == '__main__':
     config = _load_json(os.path.join(SOURCE_DIR, "rubric.json"))
     metadata = _load_json(METADATA_PATH)
 
     debug_info = _metadata_debug_summary(metadata) if DEBUG_ENV == "1" else ""
     submission_note = _submission_note()
-    prefix = "\n\n".join(p for p in (submission_note, debug_info) if p)
+    # Outputs are Markdown (output_format "md"): plain notes are escaped.
+    prefix = "\n\n".join(md_text(p) for p in (submission_note, debug_info) if p)
 
-    lockout_message = _check_locked_out(config, metadata)
+    lockout_message = locked_out_message(config, metadata)
     if lockout_message:
-        _write_locked_out(lockout_message, config, metadata)
+        results = locked_out_results(metadata, lockout_message)
         if prefix:
-            with open(RESULTS_PATH) as f:
-                results = json.load(f)
-            results["output"] = prefix + "\n\n" + results.get("output", "")
-            with open(RESULTS_PATH, "w") as f:
-                json.dump(results, f)
+            results["output"] = prefix + "\n\n" + results["output"]
+        os.makedirs(RESULTS_DIR, exist_ok=True)
+        with open(RESULTS_PATH, "w") as f:
+            json.dump(results, f)
     else:
         attempt_recorder.clear()
         student_dispatch.clear_notes()
+        student_dispatch.clear_state()
         suite = unittest.defaultTestLoader.discover('tests')
         post_processor = make_post_processor(config, metadata)
 
@@ -167,7 +81,7 @@ if __name__ == '__main__':
 
         # Shown once at the top: the script crashed part-way / ran out of time.
         grading_notes = "\n\n".join(student_dispatch.read_notes())
-        prefix = "\n\n".join(p for p in (submission_note, grading_notes, debug_info) if p)
+        prefix = "\n\n".join(md_text(p) for p in (submission_note, grading_notes, debug_info) if p)
 
         if prefix:
             with open(RESULTS_PATH) as f:

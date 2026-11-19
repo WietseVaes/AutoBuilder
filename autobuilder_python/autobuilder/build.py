@@ -30,6 +30,7 @@ Output layout (matches the gradescope-utils PyUnit convention):
     |   |-- comparator.py
     |   |-- inputs.py
     |   |-- attempts.py
+    |   |-- scoring.py
     |   |-- attempt_recorder.py
     |   |-- plot_check.py
     |   |-- python_adapter.py
@@ -47,6 +48,7 @@ import argparse
 import contextlib
 import json
 import os
+import re
 import shutil
 import tempfile
 import zipfile
@@ -61,7 +63,7 @@ TEMPLATES_DIR = os.path.join(PACKAGE_DIR, "templates")
 VENDOR_FILES = [
     "__init__.py", "comparator.py", "inputs.py", "attempts.py",
     "attempt_recorder.py", "plot_check.py", "python_adapter.py",
-    "_runner.py", "student_dispatch.py", "notebook_convert.py",
+    "_runner.py", "student_dispatch.py", "notebook_convert.py", "scoring.py",
 ]
 
 DEFAULT_TIMEOUT = 10
@@ -175,7 +177,7 @@ def _build_all_specs(test_suite):
         ttype = t.get("type", "variable")
         if ttype == "plot":
             ttype = "function" if "function_name" in t else "variable"
-        spec = {"name": t["test_name"], "type": ttype}
+        spec = {"name": t["test_name"], "type": ttype, "score": t.get("score", 0)}
         if ttype == "variable":
             spec["variable_name"] = t["variable_name"]
         else:
@@ -185,6 +187,19 @@ def _build_all_specs(test_suite):
                 spec["output_index"] = t["output_index"]
         specs.append(spec)
     return specs
+
+
+def _check_rubric_options(config):
+    """Readable errors for malformed preamble options, at build time rather
+    than when the first student submits."""
+    from .scoring import validate_late_penalties
+    try:
+        validate_late_penalties(config)
+    except ValueError as e:
+        raise RuntimeError(str(e))
+    for key in ("precheck", "combine_questions", "grade_until_crash"):
+        if key in config and not isinstance(config[key], bool):
+            raise RuntimeError(f'"{key}" must be true or false, got {config[key]!r}')
 
 
 def _check_language(config):
@@ -259,6 +274,7 @@ def _build(rubric_path, solution_path, output_path, inputs_file=None, timeout=No
     config.setdefault("timeout", DEFAULT_TIMEOUT)
 
     _check_language(config)
+    _check_rubric_options(config)
 
     # Resolve $-prefixed inputs from the inputs file, if provided.
     if inputs_file:
@@ -286,7 +302,12 @@ def _build(rubric_path, solution_path, output_path, inputs_file=None, timeout=No
         else:
             os.environ["AUTOBUILDER_TEST_INPUTS_PATH"] = _prev_inputs_path
 
-    requirements = list(dict.fromkeys(["gradescope-utils>=0.3.1"] + config.get("requirements", [])))
+    # The grader itself needs numpy (comparator.py, inputs.py), even when the
+    # assignment does not: without it every test fails to import on Gradescope.
+    requirements = ["gradescope-utils>=0.3.1"] + list(config.get("requirements", []))
+    if not any(re.match(r"numpy\b", str(r).strip(), re.IGNORECASE) for r in requirements):
+        requirements.insert(1, "numpy")
+    requirements = list(dict.fromkeys(requirements))
 
     with tempfile.TemporaryDirectory() as staging:
         # vendored helper package (comparator + input conversion)

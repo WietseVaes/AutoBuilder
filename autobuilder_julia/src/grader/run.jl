@@ -7,7 +7,8 @@
 # 3. Run worker.jl in a separate Julia process (with the course environment
 #    in env/, if any), killing it after the timeout.
 # 4. Turn each test's outcome into a Gradescope test result with the right
-#    hint, apply attempt limits, and write /autograder/results/results.json.
+#    hint; apply precheck, attempt limits, late penalties and
+#    combine_questions (scoring.jl); and write /autograder/results/results.json.
 #
 # The /autograder paths can be overridden with environment variables, which
 # is how `AutoBuilder.grade` and `AutoBuilder.build` run this same file
@@ -52,7 +53,7 @@ end
 Run the worker; returns (events, timed_out, log) where events are the
 parsed JSON lines it wrote and log is everything the scripts printed.
 """
-function run_worker(student_path, tests, timeout)
+function run_worker(student_path, tests, timeout; precheck_enabled=false)
     work = mktempdir()
     out_path = joinpath(work, "results.jsonl")
     log_path = joinpath(work, "output.log")
@@ -65,6 +66,7 @@ function run_worker(student_path, tests, timeout)
         "tests" => tests,
         "out" => out_path,
         "cwd" => SOURCE_DIR,
+        "precheck_enabled" => precheck_enabled,
     )
     write(job_path, json_string(job))
 
@@ -172,11 +174,15 @@ function grade(rubric, build_info, metadata)
 
     by_test = Dict{String,Any}()
     timed_out = false
+    precheck = false   # the student asked for a precheck run (rubric "precheck": true)
     log = ""
     if student_path !== nothing
-        events, timed_out, log = run_worker(student_path, tests_cfg, timeout)
+        events, timed_out, log = run_worker(student_path, tests_cfg, timeout;
+                                            precheck_enabled=get(rubric, "precheck", false) === true)
         for ev in events
-            if ev["event"] == "test"
+            if ev["event"] == "precheck"
+                precheck = true
+            elseif ev["event"] == "test"
                 by_test[ev["test_name"]] = ev
             elseif ev["event"] == "script_error"
                 who = ev["who"]
@@ -231,7 +237,7 @@ function grade(rubric, build_info, metadata)
     end
 
     results = Dict{String,Any}("tests" => results_tests, "output" => join(notes, "\n\n"))
-    apply_attempt_limits!(results, rubric, metadata, attempted)
+    apply_attempt_limits!(results, rubric, metadata, attempted; precheck=precheck)
     return results
 end
 

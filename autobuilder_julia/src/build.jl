@@ -14,7 +14,7 @@
 
 const GRADER_DIR = joinpath(@__DIR__, "grader")
 const GRADER_FILES = ["json.jl", "values.jl", "compare.jl", "worker.jl",
-                      "submission.jl", "attempts.jl", "run.jl", "plots.jl"]
+                      "submission.jl", "attempts.jl", "scoring.jl", "run.jl", "plots.jl"]
 const DEFAULT_TIMEOUT = 600
 const RESERVED = Set(["run_autograder", "setup.sh", "rubric.json", "build_info.json",
                       "solution.jl", "test_inputs.jl"])
@@ -85,6 +85,12 @@ function load_rubric(rubric_path)
             error("Test \"$name\": unknown type \"$kind\" (use \"variable\", \"function\" or \"plot\").")
         end
     end
+    for key in ("precheck", "combine_questions", "grade_until_crash")
+        haskey(rubric, key) && !(rubric[key] isa Bool) &&
+            error("\"$key\" must be true or false, got $(repr(rubric[key])).")
+    end
+    problem = late_penalties_problem(rubric)
+    problem === nothing || error(problem)
     # Plot tests need Plots.jl in the assignment's environment.
     if any(t -> get(t, "type", "variable") == "plot", tests) && !isfile(joinpath(dirname(rubric_path), "Project.toml"))
         any(r -> string(r) == "Plots", get(rubric, "requirements", Any[])) || error(
@@ -207,7 +213,7 @@ end
 Run the staged autograder exactly as Gradescope would (same run.jl, same
 worker), against `submission` -- a file, or a folder of files.
 """
-function run_staged(staging, submission; metadata_path=nothing)
+function run_staged(staging, submission; metadata_path=nothing, plain=false, now=nothing)
     work = mktempdir()
     subdir = joinpath(work, "submission")
     resdir = joinpath(work, "results")
@@ -224,6 +230,9 @@ function run_staged(staging, submission; metadata_path=nothing)
     env["AUTOBUILDER_SUBMISSION_DIR"] = subdir
     env["AUTOBUILDER_RESULTS_DIR"] = resdir
     env["AUTOBUILDER_METADATA_PATH"] = metadata_path === nothing ? joinpath(work, "no_metadata.json") : abspath(metadata_path)
+    # The solution check compares test by test: no combined questions, no late penalties.
+    plain ? (env["AUTOBUILDER_PLAIN"] = "1") : delete!(env, "AUTOBUILDER_PLAIN")
+    now === nothing ? delete!(env, "AUTOBUILDER_NOW") : (env["AUTOBUILDER_NOW"] = string(now))
     cmd = `$(Base.julia_cmd()) --startup-file=no --history-file=no $(joinpath(staging, "grader", "run.jl"))`
     run(Cmd(setenv(cmd, env); dir=staging))
     results = json_parsefile(joinpath(resdir, "results.json"))
@@ -269,7 +278,7 @@ function build(rubric, solution; inputs=nothing, output="autograder.zip", timeou
         rub = stage(staging, rubric, solution; inputs=inputs, timeout=timeout, fresh_env=true)
         files = list_files(staging)   # before the check, which may create files
         println(io, "Checking the solution against the rubric...")
-        _check_solution(rub, run_staged(staging, solution), io)
+        _check_solution(rub, run_staged(staging, solution; plain=true), io)
         isfile(output) && rm(output)
         write_zip(output, staging, files)
         println(io, "Wrote $output")
@@ -285,13 +294,17 @@ end
 Grade one submission locally with the same autograder `build` produces and
 print the result. `submission` can be a file or a folder. Returns the
 Gradescope results as a Dict.
+
+- `metadata`: a submission_metadata.json to use (previous submissions, created_at)
+- `now`: pretend the submission was made at this time, to try late penalties,
+  e.g. "2026-11-21T10:00:00-08:00"
 """
 function grade(rubric, solution, submission; inputs=nothing, timeout=nothing, json_out=nothing,
-               metadata=nothing, io::IO=stdout)
+               metadata=nothing, now=nothing, io::IO=stdout)
     staging = mktempdir()
     try
         stage(staging, rubric, solution; inputs=inputs, timeout=timeout, fresh_env=false)
-        results = run_staged(staging, submission; metadata_path=metadata)
+        results = run_staged(staging, submission; metadata_path=metadata, now=now)
         print_results(io, results)
         if json_out !== nothing
             write(json_out, json_string(Dict("tests" => results["tests"], "total" => results["score"]); indent=2))
@@ -304,22 +317,32 @@ end
 
 _fmt_score(x) = isinteger(x) ? string(Int(x)) : string(x)
 
+# Gradescope shows the outputs as Markdown; in a terminal, drop the escapes
+# and use plain words for the symbols.
+function _terminal_text(markdown)
+    text = replace(string(markdown), r"(?<!\\)\*\*" => "")   # bold markers
+    text = replace(text, r"\\([\\`*_\[\]<>#|])" => s"\1")
+    text = replace(text, r" +\n" => "\n")                     # Markdown line breaks
+    return replace(text, "✅" => "[ok]", "❌" => "[x]", "—" => "-", "▸" => ">", "⚠️" => "[!]")
+end
+
 function print_results(io, results)
-    top = strip(get(results, "output", ""))
+    top = strip(_terminal_text(get(results, "output", "")))
     if !isempty(top)
         println(io, top)
         println(io)
     end
     for t in results["tests"]
+        get(t, "visibility", "visible") == "hidden" && continue
         # Results re-posted from an earlier submission may have no "status".
         passed = get(t, "status", nothing) == "passed" ||
                  (!haskey(t, "status") && Float64(get(t, "score", 0)) >= Float64(get(t, "max_score", 0)) > 0)
         println(io, "[", passed ? "PASS" : "FAIL", "] ", get(t, "name", get(t, "number", "?")))
-        out = rstrip(get(t, "output", ""))
+        out = rstrip(_terminal_text(get(t, "output", "")))
         isempty(out) && continue
         for line in split(out, '\n')
             # Embedded hint images are long base64 strings; don't print them.
-            startswith(line, "![") && occursin("base64,", line) && (line = "[hint image]")
+            startswith(lstrip(line), "![") && occursin("base64,", line) && (line = "[hint image]")
             println(io, "       ", line)
         end
     end

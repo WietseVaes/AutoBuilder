@@ -17,6 +17,9 @@ their results:
     {"kind": "value", "name": test_name, "value": v}
     {"kind": "missing", "name": test_name}          variable/function never defined
     {"kind": "call_error", "name": test_name, "detail": traceback}
+    {"kind": "precheck"}                            the rubric allows a precheck and the
+                                                     student set precheck = True: only the
+                                                     zero-point tests follow
     {"kind": "done"}
 
 AUTOBUILDER_STUDENT_HELPERS_DIR, if set, is added to sys.path before the
@@ -45,6 +48,11 @@ def _emit(out, record):
         })
     out.write(data)
     out.flush()
+
+
+def _wants_precheck(ns):
+    """The student wrote `precheck = True` (any capitalisation of the name)."""
+    return any(k.lower() == "precheck" and v is True for k, v in ns.items())
 
 
 def main():
@@ -76,6 +84,10 @@ def main():
         except (Exception, SystemExit):
             # Keep going: whatever the script defined before the error is graded.
             _emit(out, {"kind": "script_error", "detail": traceback.format_exc()})
+
+        if os.environ.get("AUTOBUILDER_PRECHECK_ENABLED") == "1" and _wants_precheck(ns):
+            _emit(out, {"kind": "precheck"})
+            tests = [t for t in tests if not t.get("score")]
 
         for t in tests:
             name = t["name"]

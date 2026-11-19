@@ -304,7 +304,8 @@ def test_script_crash_fails_every_test_by_default(tmp_path):
     assert results["score"] == 0
     for t in results["tests"]:
         assert t["score"] == 0
-        assert "is not defined. (NameError: name 'undefined_name' is not defined)" in t["output"]
+        # Markdown output: "_" is escaped (shown as a plain underscore).
+        assert "is not defined. (NameError: name 'undefined\\_name' is not defined)" in t["output"]
     assert "Your code stopped with an error" not in (results.get("output") or "")
 
 
@@ -338,3 +339,312 @@ def test_timeout_keeps_finished_tests_with_grade_until_crash(tmp_path):
     by_number = {t["number"]: t for t in results["tests"]}
     assert by_number["check_x"]["score"] == 10
     assert "did not finish within 5 seconds, so this test could not be completed" in by_number["check_double"]["output"]
+
+
+# ── precheck, combine_questions, late_penalties ──────────────────────────────
+
+def _run_with_metadata(source_dir, submission_dir, tmp_path, metadata, tag="run"):
+    """Like _run_gradescope_flow, with a submission_metadata.json (previous
+    submissions, created_at). `tag` keeps the result folders of several runs apart."""
+    run_dir = tmp_path / tag
+    run_dir.mkdir()
+    meta_path = run_dir / "submission_metadata.json"
+    meta_path.write_text(json.dumps(metadata))
+    results_dir = run_dir / "results"
+    env = dict(os.environ)
+    env.update({
+        "AUTOBUILDER_SUBMISSION_DIR": str(submission_dir),
+        "AUTOBUILDER_RESULTS_DIR": str(results_dir),
+        "AUTOBUILDER_METADATA_PATH": str(meta_path),
+        "AUTOBUILDER_STATUS_PATH": str(run_dir / "attempt_status.json"),
+    })
+    env.pop("AUTOBUILDER_NOW", None)
+    for script in ("prepare_submission.py", "run_tests.py"):
+        proc = subprocess.run([sys.executable, script], cwd=str(source_dir), env=env,
+                              capture_output=True, text=True)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+    return json.loads((results_dir / "results.json").read_text())
+
+
+def _previous(results, when="2026-11-01T12:00:00+00:00"):
+    return {"submission_time": when, "score": results["score"], "results": results}
+
+
+def _resubmit(tmp_path, files, old_name):
+    (tmp_path / "submission").rename(tmp_path / old_name)
+    return _write_submission(tmp_path, files)
+
+
+def _precheck_config(**overrides):
+    config = _rubric_config(precheck=True, **overrides)
+    config["test_suite"][0]["attempts"] = 3
+    config["test_suite"].append({"test_name": "fmt_x", "type": "variable", "variable_name": "x",
+                                 "score": 0, "description": "x is defined"})
+    config["test_suite"].append({"test_name": "check_double", "type": "function", "function_name": "double",
+                                 "inputs": [2.0], "score": 5, "attempts": 3, "description": "double(2.0)"})
+    return config
+
+
+_PRECHECK_SOLUTION = "x = 42\ndef double(v):\n    return 2 * v\n"
+
+
+def test_precheck_runs_only_zero_point_tests(tmp_path):
+    source_dir = _build_source_dir(tmp_path, _precheck_config(timeout=5), _PRECHECK_SOLUTION)
+    # double() would hang: in a precheck it is never called.
+    submission_dir = _write_submission(tmp_path, {
+        "hw.py": "Precheck = True\nx = 42\ndef double(v):\n    while True:\n        pass\n"})
+    results = _run_with_metadata(source_dir, submission_dir, tmp_path, {})
+    visible = [t for t in results["tests"] if t.get("visibility") != "hidden"]
+    assert [t["number"] for t in visible] == ["fmt_x"]
+    assert visible[0]["status"] == "passed"
+    assert results["score"] == 0
+    assert "Precheck run" in results["output"]
+    assert "did not finish" not in json.dumps(results)
+    assert visible[0]["extra_data"] == {"precheck": True}    # no attempts used
+
+
+def test_precheck_keeps_previous_scores_hidden_and_uses_no_attempts(tmp_path):
+    source_dir = _build_source_dir(tmp_path, _precheck_config(), _PRECHECK_SOLUTION)
+    # x wrong, so not every attempt-limited test is done (no lockout).
+    full = _write_submission(tmp_path, {"hw.py": "x = 0\ndef double(v):\n    return 2 * v\n"})
+    first = _run_with_metadata(source_dir, full, tmp_path, {}, tag="first")
+    assert first["score"] == 5
+
+    pre = _resubmit(tmp_path, {"hw.py": "precheck = True\nx = 0\n"}, "sub_1")
+    second = _run_with_metadata(source_dir, pre, tmp_path,
+                                {"previous_submissions": [_previous(first)]}, tag="second")
+    assert second["score"] == 5
+    hidden = {t["number"]: t for t in second["tests"] if t.get("visibility") == "hidden"}
+    assert hidden["check_double"]["extra_data"] == {"attempts_used": 1, "best_score": 5.0}
+
+    # A graded run after the precheck still sees the history (1 attempt used, not 2).
+    graded = _resubmit(tmp_path, {"hw.py": "x = 42\ndef double(v):\n    return 0\n"}, "sub_2")
+    third = _run_with_metadata(source_dir, graded, tmp_path,
+                               {"previous_submissions": [_previous(first),
+                                                         _previous(second, "2026-11-02T12:00:00+00:00")]},
+                               tag="third")
+    by_number = {t["number"]: t for t in third["tests"]}
+    # Full credit since the first run: done, so no attempt is used and it counts as passed.
+    assert by_number["check_double"]["extra_data"] == {"attempts_used": 1, "best_score": 5.0}
+    assert by_number["check_double"]["status"] == "passed"
+    assert "Previously correct" in by_number["check_double"]["output"]
+
+
+def test_precheck_variable_ignored_unless_rubric_allows_it(tmp_path):
+    config = _precheck_config()
+    config["precheck"] = False
+    source_dir = _build_source_dir(tmp_path, config, _PRECHECK_SOLUTION)
+    submission_dir = _write_submission(tmp_path, {"hw.py": "precheck = True\n" + _PRECHECK_SOLUTION})
+    results = _run_with_metadata(source_dir, submission_dir, tmp_path, {})
+    assert results["score"] == 15
+    assert {t["number"] for t in results["tests"]} == {"check_x", "fmt_x", "check_double"}
+
+
+def _combined_config(**overrides):
+    return {
+        "language": "python",
+        "combine_questions": True,
+        **overrides,
+        "test_suite": [
+            {"test_name": "1a", "type": "variable", "variable_name": "a", "score": 1,
+             "description": "a is one", "hint_tolerance": "Count again.", "attempts": 5},
+            {"test_name": "1b", "type": "variable", "variable_name": "b", "score": 2,
+             "description": "b is two", "hint_not_defined": "Define b.", "attempts": 5},
+            {"test_name": "2a", "type": "function", "function_name": "f", "inputs": [3],
+             "score": 3, "description": "f(3) is nine"},
+        ],
+    }
+
+
+_COMBINED_SOLUTION = "a = 1\nb = 2\ndef f(x):\n    return x * x\n"
+
+
+def test_combine_questions_groups_parts_and_lists_only_errors(tmp_path):
+    source_dir = _build_source_dir(tmp_path, _combined_config(), _COMBINED_SOLUTION)
+    submission_dir = _write_submission(tmp_path, {"hw.py": "a = 5\ndef f(x):\n    return x * x\n"})
+    results = _run_with_metadata(source_dir, submission_dir, tmp_path, {})
+    assert all("number" not in t for t in results["tests"])   # Gradescope shows "Question 1", not "1) Question 1"
+    by_name = {t["name"]: t for t in results["tests"]}
+    assert set(by_name) == {"Question 1", "Question 2"}
+    q1, q2 = by_name["Question 1"], by_name["Question 2"]
+    assert q1["name"] == "Question 1" and q1["max_score"] == 3 and q1["score"] == 0
+    assert q2["score"] == 3 and q2["output"] == "**✅ All parts correct.**"
+    out = q1["output"]
+    assert out.startswith("**❌ Incorrect answers:**")
+    assert "- **Part a: `a`** — a is one" in out and "  ▸ **Hint:** Count again." in out
+    assert "  ▸ **Attempts:** 1/5 (4 left)" in out
+    assert "- **Part b: `b`** — b is two" in out and "Define b." in out
+    assert out.index("a is one") < out.index("b is two")
+    assert "Test Failed" not in out
+    assert q1["extra_data"] == {"parts": {"1a": {"attempts_used": 1, "best_score": 0.0},
+                                          "1b": {"attempts_used": 0, "best_score": 0.0}}}
+
+
+def test_combine_questions_keeps_part_history(tmp_path):
+    source_dir = _build_source_dir(tmp_path, _combined_config(), _COMBINED_SOLUTION)
+    first = _write_submission(tmp_path, {"hw.py": "a = 1\nb = 0\n"})   # b wrong: no lockout
+    r1 = _run_with_metadata(source_dir, first, tmp_path, {}, tag="first")
+    second = _resubmit(tmp_path, {"hw.py": "a = 7\nb = 2\n"}, "sub_1")
+    r2 = _run_with_metadata(source_dir, second, tmp_path, {"previous_submissions": [_previous(r1)]}, tag="second")
+    q1 = {t["name"]: t for t in r2["tests"]}["Question 1"]
+    assert q1["score"] == 3                      # 1a kept (attempts), 1b correct
+    assert q1["status"] == "passed" and "Incorrect" not in q1["output"]
+    assert q1["output"] == ("**⚠️ Previously correct, now incorrect (full credit kept):**\n\n"
+                            "- **Part a: `a`** — a is one")
+    assert q1["extra_data"]["parts"]["1a"]["attempts_used"] == 1     # no attempt used once correct
+
+
+def _late_config():
+    config = _rubric_config(late_penalties=[
+        {"after": "2026-11-20T23:59:00-08:00", "penalty": 0.1},
+        {"after": "2026-11-22T23:59:00-08:00", "penalty": 0.5},
+    ])
+    config["test_suite"].append({"test_name": "check_y", "type": "variable", "variable_name": "y",
+                                 "score": 4, "description": "y should be 1"})
+    return config
+
+
+def test_late_penalty_only_hits_answers_fixed_after_the_deadline(tmp_path):
+    source_dir = _build_source_dir(tmp_path, _late_config(), "x = 42\ny = 1\n")
+    on_time = _write_submission(tmp_path, {"hw.py": "x = 42\ny = 0\n"})
+    r1 = _run_with_metadata(source_dir, on_time, tmp_path,
+                            {"created_at": "2026-11-20T10:00:00-08:00"}, tag="on_time")
+    assert r1["score"] == 10 and "late" not in r1["output"]
+
+    late = _resubmit(tmp_path, {"hw.py": "x = 0\ny = 1\n"}, "sub_1")
+    r2 = _run_with_metadata(source_dir, late, tmp_path,
+                            {"created_at": "2026-11-21T09:00:00.123456-08:00",
+                             "previous_submissions": [_previous(r1)]}, tag="late")
+    by_number = {t["number"]: t for t in r2["tests"]}
+    assert by_number["check_x"]["score"] == 10                 # correct on time: kept
+    assert "Previously correct" in by_number["check_x"]["output"]
+    assert abs(by_number["check_y"]["score"] - 3.6) < 1e-9     # fixed late: 4 * 0.9
+    assert "10% late penalty" in by_number["check_y"]["output"]
+    assert "submitted after Nov 20, 2026 at 11:59 PM PST" in r2["output"]
+    assert r2["output_format"] == "md" and by_number["check_y"]["output_format"] == "md"
+
+    # Even later: 50%, but the 3.6 already earned is kept.
+    later = _resubmit(tmp_path, {"hw.py": "x = 42\ny = 1\n"}, "sub_2")
+    r3 = _run_with_metadata(source_dir, later, tmp_path,
+                            {"created_at": "2026-11-23T09:00:00-08:00",
+                             "previous_submissions": [_previous(r1),
+                                                      _previous(r2, "2026-11-21T17:00:00+00:00")]},
+                            tag="later")
+    assert abs(r3["score"] - 13.6) < 1e-9
+
+
+def test_malformed_late_penalties_rejected_at_build(tmp_path):
+    import pytest
+    config = _rubric_config(late_penalties=[{"after": "2026-11-20 23:59", "penalty": 0.1}])
+    with pytest.raises(RuntimeError, match="time zone"):
+        _build_source_dir(tmp_path, config, "x = 42\n")
+
+
+def test_numpy_always_in_requirements(tmp_path):
+    """comparator.py needs numpy: a rubric without "requirements" used to give
+    a zip whose tests could not even be imported on Gradescope."""
+    source_dir = _build_source_dir(tmp_path, _rubric_config(), "x = 42\n")
+    reqs = (source_dir / "requirements.txt").read_text().split()
+    assert reqs[:2] == ["gradescope-utils>=0.3.1", "numpy"]
+    (tmp_path / "pinned").mkdir()
+    other = _build_source_dir(tmp_path / "pinned", _rubric_config(requirements=["numpy==1.26.4"]), "x = 42\n")
+    assert (other / "requirements.txt").read_text().split() == ["gradescope-utils>=0.3.1", "numpy==1.26.4"]
+
+
+def test_unknown_result_rows_are_kept():
+    """A row that matches no rubric test (e.g. the tests failed to import) is
+    shown instead of silently dropped."""
+    from autobuilder.scoring import finalize
+    results = {"tests": [{"name": "test_rubric (unittest.loader._FailedTest)", "score": 0.0,
+                          "max_score": 0.0, "status": "failed", "output": "ImportError: no numpy"}]}
+    finalize(results, _rubric_config(combine_questions=True), {}, {})
+    assert [t["output"] for t in results["tests"]] == ["```\nImportError: no numpy\n```"]
+
+
+def test_late_maximum_reached_mixes_on_time_and_late_credit(tmp_path):
+    """x correct on time (10/10) and y fixed late (4 * 0.9 = 3.6): the most
+    credit still possible is 13.6/14, not 14 * 0.9. That is said once, and
+    later submissions are not graded."""
+    source_dir = _build_source_dir(tmp_path, _late_config(), "x = 42\ny = 1\n")
+    on_time = _write_submission(tmp_path, {"hw.py": "x = 42\ny = 0\n"})
+    r1 = _run_with_metadata(source_dir, on_time, tmp_path,
+                            {"created_at": "2026-11-20T10:00:00-08:00"}, tag="on_time")
+    late = _resubmit(tmp_path, {"hw.py": "x = 42\ny = 1\n"}, "sub_1")
+    r2 = _run_with_metadata(source_dir, late, tmp_path,
+                            {"created_at": "2026-11-21T09:00:00-08:00",
+                             "previous_submissions": [_previous(r1)]}, tag="late")
+    assert abs(r2["score"] - 13.6) < 1e-9
+    assert "this is the most credit you can receive (13.6/14)" in r2["output"]
+    later = _resubmit(tmp_path, {"hw.py": "x = 0\ny = 0\n"}, "sub_2")
+    r3 = _run_with_metadata(source_dir, later, tmp_path,
+                            {"created_at": "2026-11-23T09:00:00-08:00",
+                             "previous_submissions": [_previous(r1),
+                                                      _previous(r2, "2026-11-21T17:00:00+00:00")]},
+                            tag="later")
+    assert abs(r3["score"] - 13.6) < 1e-9
+    assert r3["output"].startswith("✅ **All questions are correct.** With the 50% late penalty included")
+
+
+def test_question_1_on_time_questions_2_and_3_late(tmp_path):
+    """Question 1 correct before the deadline, Questions 2 and 3 only after
+    it: Question 1 keeps full credit, 2 and 3 get the 20% penalty, the most
+    credit possible is 3 + 0.8 * (3 + 3) = 7.8 (not 9 * 0.8 = 7.2), and the
+    next submission is not graded."""
+    config = _combined_config(late_penalties=[{"after": "2026-11-20T23:59:00-08:00", "penalty": 0.2}])
+    config["test_suite"].append({"test_name": "3", "type": "variable", "variable_name": "c",
+                                 "score": 3, "description": "c is three"})
+    source_dir = _build_source_dir(tmp_path, config, _COMBINED_SOLUTION + "c = 3\n")
+
+    on_time = _write_submission(tmp_path, {"hw.py": "a = 1\nb = 2\nc = 0\n"})
+    r1 = _run_with_metadata(source_dir, on_time, tmp_path,
+                            {"created_at": "2026-11-20T10:00:00-08:00"}, tag="on_time")
+    assert r1["score"] == 3 and "Late" not in r1["output"]
+
+    late = _resubmit(tmp_path, {"hw.py": _COMBINED_SOLUTION + "c = 3\n"}, "sub_1")
+    r2 = _run_with_metadata(source_dir, late, tmp_path,
+                            {"created_at": "2026-11-21T09:00:00-08:00",
+                             "previous_submissions": [_previous(r1)]}, tag="late")
+    by_name = {t["name"]: t for t in r2["tests"]}
+    assert by_name["Question 1"]["score"] == 3
+    assert by_name["Question 1"]["output"] == "**✅ All parts correct.**"     # no penalty mentioned
+    assert abs(by_name["Question 2"]["score"] - 2.4) < 1e-9
+    assert "**✅ Correct, with the 20% late penalty:**" in by_name["Question 2"]["output"]
+    assert "- **Part a: `f`** — f(3) is nine (2.4/3)" in by_name["Question 2"]["output"]
+    assert abs(by_name["Question 3"]["score"] - 2.4) < 1e-9
+    assert abs(r2["score"] - 7.8) < 1e-9
+    assert "**Late submission:** submitted after Nov 20, 2026 at 11:59 PM PST" in r2["output"]
+    assert "the most credit you can receive (7.8/9)" in r2["output"]
+
+    again = _resubmit(tmp_path, {"hw.py": "a = 0\n"}, "sub_2")
+    r3 = _run_with_metadata(source_dir, again, tmp_path,
+                            {"created_at": "2026-11-22T09:00:00-08:00",
+                             "previous_submissions": [_previous(r1),
+                                                      _previous(r2, "2026-11-21T17:00:00+00:00")]},
+                            tag="again")
+    assert abs(r3["score"] - 7.8) < 1e-9
+    assert "the most credit you can receive (7.8/9)" in r3["output"]
+
+
+def test_deadlines_are_shown_readably():
+    from autobuilder.scoring import format_time, parse_time
+    assert format_time(parse_time("2026-11-20T23:59:00-08:00")) == "Nov 20, 2026 at 11:59 PM PST"
+    assert format_time(parse_time("2026-06-01T09:05:00-07:00")) == "Jun 1, 2026 at 9:05 AM PDT"
+    assert format_time(parse_time("2026-06-01T12:00:00Z")) == "Jun 1, 2026 at 12:00 PM UTC"
+    assert format_time(parse_time("2026-06-01T00:30:00+05:30")) == "Jun 1, 2026 at 12:30 AM UTC+5:30"
+
+
+def test_student_text_is_escaped_and_tracebacks_are_code():
+    from autobuilder.scoring import finalize
+    config = _rubric_config()
+    results = {"tests": [{"number": "check_x", "name": "x", "score": 0.0, "max_score": 10.0,
+                          "status": "failed",
+                          "output": "Test Failed: got <b>*bold*</b> for my_var\nHint: Look again."}]}
+    finalize(results, config, {}, {})
+    out = results["tests"][0]["output"]
+    assert out == "▸ got \\<b\\>\\*bold\\*\\</b\\> for my\\_var  \n▸ **Hint:** Look again."
+    results = {"tests": [{"number": "check_x", "name": "x", "score": 0.0, "max_score": 10.0,
+                          "status": "failed",
+                          "output": "Test Failed: Traceback (most recent call last):\n  File x\nValueError: no"}]}
+    finalize(results, config, {}, {})
+    assert "▸ Error:\n\n```\nTraceback (most recent call last):\n  File x\nValueError: no\n```" \
+        in results["tests"][0]["output"]

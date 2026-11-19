@@ -16,6 +16,7 @@ Returns a dict:
         "values": {test_name: value},    # successfully captured values
         "_missing": [test_name, ...],    # variable/function never defined
         "_call_errors": {test_name: tb}, # function raised when called
+        "_precheck": bool,               # a precheck run: only zero-point tests ran
     }
 """
 import json
@@ -47,7 +48,7 @@ def run_python_script(script_path, tests, timeout=10):
     fd, output_path = tempfile.mkstemp(suffix=".pkl")
     os.close(fd)
     result = {"_error": None, "_script_error": None, "_timed_out": False, "_unfinished": [],
-              "values": {}, "_missing": [], "_call_errors": {}}
+              "values": {}, "_missing": [], "_call_errors": {}, "_precheck": False}
     stderr = ""
     try:
         try:
@@ -77,10 +78,14 @@ def run_python_script(script_path, tests, timeout=10):
             result["_missing"].append(r["name"])
         elif kind == "call_error":
             result["_call_errors"][r["name"]] = r["detail"]
+        elif kind == "precheck":
+            result["_precheck"] = True
         if "name" in r:
             seen.add(r["name"])
 
-    result["_unfinished"] = [t["name"] for t in tests if t["name"] not in seen]
+    skipped = result["_precheck"]   # scored tests are not run in a precheck
+    result["_unfinished"] = [t["name"] for t in tests
+                             if t["name"] not in seen and not (skipped and t.get("score"))]
     if not records and not result["_timed_out"]:
         # The runner itself crashed before producing anything.
         result["_error"] = stderr or "Grader failed to run the script (no output produced)."

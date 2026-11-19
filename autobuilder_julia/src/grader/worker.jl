@@ -15,6 +15,8 @@
 #              "missing"          name not defined (detail: why, if known)
 #              "call_error"       reading/calling it raised an error
 #              "autograder_error" the solution / rubric failed on this test
+#   {"event": "precheck"}   the rubric allows a precheck and the student set
+#                           `precheck = true`: only the zero-point tests follow
 #   {"event": "done"}
 
 include(joinpath(@__DIR__, "json.jl"))
@@ -174,6 +176,16 @@ function grade_test(t, sol, stu, inputs_mod, student_script_error, solution_path
     return result
 end
 
+# The student wrote `precheck = true` (any capitalisation of the name).
+function wants_precheck(m::Module)
+    for n in names(m; all=true)
+        lowercase(string(n)) == "precheck" && isdefined(m, n) && getglobal(m, n) === true && return true
+    end
+    return false
+end
+
+_is_scored(t) = (s = get(t, "score", 0); s !== nothing && s != 0)
+
 function emit(io, d)
     println(io, json_string(d))
     flush(io)
@@ -207,7 +219,13 @@ function main(job_path)
 
     # Everything the scripts defined lives in a newer "world" than this
     # function was compiled in; invokelatest makes all of it visible.
-    for t in job["tests"]
+    tests = job["tests"]
+    if get(job, "precheck_enabled", false) === true && Base.invokelatest(wants_precheck, stu)
+        emit(out, Dict("event" => "precheck"))
+        tests = [t for t in tests if !_is_scored(t)]   # the scored tests are not run
+    end
+
+    for t in tests
         res = Base.invokelatest(grade_test, t, sol, stu, inputs_mod, student_err, solution_path, student_path)
         emit(out, res)
     end

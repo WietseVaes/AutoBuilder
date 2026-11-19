@@ -35,10 +35,22 @@ def cmd_build(args):
     return 0
 
 
+def _terminal_text(markdown):
+    """Gradescope shows the outputs as Markdown; in a terminal, drop the
+    escapes and use plain words for the symbols."""
+    import re
+    text = re.sub(r"(?<!\\)\*\*", "", markdown)               # bold markers
+    text = re.sub(r"\\([\\`*_\[\]<>#|])", r"\1", text)
+    text = re.sub(r" +\n", "\n", text)                          # Markdown line breaks
+    for symbol, plain in (("✅", "[ok]"), ("❌", "[x]"), ("—", "-"), ("▸", ">"), ("⚠️", "[!]")):
+        text = text.replace(symbol, plain)
+    return text
+
+
 def cmd_grade(args):
     from gradescope_utils.autograder_utils.json_test_runner import JSONTestRunner
     from .build import (
-        _build_all_specs, _check_language, _load_inputs_namespace, _resolve_hint_images,
+        _build_all_specs, _check_language, _check_rubric_options, _load_inputs_namespace, _resolve_hint_images,
         _resolve_inputs, working_directory,
     )
 
@@ -46,6 +58,7 @@ def cmd_grade(args):
         config = json.load(f)
     try:
         _check_language(config)
+        _check_rubric_options(config)
     except RuntimeError as e:
         print(e)
         return 1
@@ -124,10 +137,13 @@ def cmd_grade(args):
 
         sys.path.insert(0, tmp)
         try:
-            from autobuilder import attempt_recorder
+            from autobuilder import attempt_recorder, student_dispatch
             from autobuilder.attempts import make_post_processor
 
             attempt_recorder.clear()
+            student_dispatch.clear_state()
+            if args.now:
+                os.environ["AUTOBUILDER_NOW"] = args.now
 
             post_processor = make_post_processor(config, {})
             stream = io.StringIO()
@@ -158,14 +174,19 @@ def cmd_grade(args):
             sys.path.remove(tmp)
             os.environ.pop("AUTOBUILDER_SOURCE_DIR", None)
             os.environ.pop("AUTOBUILDER_TEST_INPUTS_PATH", None)
+            os.environ.pop("AUTOBUILDER_NOW", None)
             for mod in ["test_rubric", "solution", "student_submission"]:
                 sys.modules.pop(mod, None)
 
     for note in notes:
         print(note + "\n")
+    if results.get("output"):
+        print(_terminal_text(results["output"]).rstrip() + "\n")
 
     total = 0.0
     for t in results.get("tests", []):
+        if t.get("visibility") == "hidden":
+            continue
         score = t.get("score", 0.0)
         max_score = t.get("max_score", 0.0)
         total += score
@@ -173,7 +194,7 @@ def cmd_grade(args):
         print(f"[{marker}] {t.get('name')}")
         output = t.get("output")
         if output:
-            for line in output.rstrip().splitlines():
+            for line in _terminal_text(output).rstrip().splitlines():
                 print(f"       {line}")
 
     print(f"\nTotal: {total:g}")
@@ -206,6 +227,8 @@ def main(argv=None):
     p_grade.add_argument("--inputs", help="Path to a .py file defining test input variables")
     p_grade.add_argument("--timeout", type=float, default=None,
                          help="Seconds the submission may run (default: the rubric's \"timeout\", else 10, as on Gradescope)")
+    p_grade.add_argument("--now", help="Pretend the submission was made at this time, to try late "
+                                        "penalties, e.g. 2026-11-21T10:00:00-08:00")
     p_grade.add_argument("--json-out", help="Write structured grade results as JSON to this path")
     p_grade.set_defaults(func=cmd_grade)
 

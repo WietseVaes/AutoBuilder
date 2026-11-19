@@ -5,83 +5,23 @@
 #   "attempts": N         count at most N attempted submissions for this test
 #   "allow_tries": true   no cap: every attempt can still raise the best score
 #
-# Gradescope only shows the autograder the previous submission's results, so
-# each submission carries a small accumulator forward in the test's
-# extra_data: {"attempts_used": n, "best_score": s}. "Attempted" means the
-# variable/function was defined in this submission, right or wrong.
+# "Attempted" means the variable/function was defined in this submission,
+# right or wrong. The bookkeeping (accumulators carried forward in
+# extra_data, late penalties, precheck runs, combined questions) is in
+# scoring.jl.
 #
 # Missing or malformed metadata counts as "first submission"; never throws.
 
-_fmt(x) = isinteger(x) ? string(Int(x)) : string(round(x; sigdigits=6))
-
-function _previous_submission_tests(metadata)
-    try
-        prev = get(metadata, "previous_submissions", nothing)
-        (prev isa AbstractVector && !isempty(prev)) || return Dict{String,Any}()
-        # Newest first: [1] is the submission right before this one.
-        results = get(prev[1], "results", nothing)
-        results isa AbstractDict || return Dict{String,Any}()
-        by_number = Dict{String,Any}()
-        for t in something(get(results, "tests", nothing), Any[])
-            n = get(t, "number", nothing)
-            n === nothing || (by_number[string(n)] = t)
-        end
-        return by_number
-    catch
-        return Dict{String,Any}()
-    end
-end
-
-function _accumulator(prev_tests, name)
-    try
-        t = get(prev_tests, name, nothing)
-        extra = t === nothing ? nothing : get(t, "extra_data", nothing)
-        if extra isa AbstractDict && haskey(extra, "attempts_used")
-            return (Int(extra["attempts_used"]), Float64(something(get(extra, "best_score", 0.0), 0.0)))
-        end
-    catch
-    end
-    return (0, 0.0)
-end
+include(joinpath(@__DIR__, "scoring.jl"))
 
 """
-    apply_attempt_limits!(results, rubric, metadata, attempted)
+    apply_attempt_limits!(results, rubric, metadata, attempted; precheck=false)
 
-Rewrite score / name / output / extra_data of each attempt-limited test in
+Apply attempt limits, late penalties, precheck and combine_questions to
 `results` (the Gradescope results Dict) and recompute the total score.
-`attempted[test_name]` says whether the student defined the name this time.
 """
-function apply_attempt_limits!(results, rubric, metadata, attempted)
-    prev_tests = _previous_submission_tests(metadata)
-    by_number = Dict(t["number"] => t for t in results["tests"])
-    for cfg in get(rubric, "test_suite", Any[])
-        limit = get(cfg, "attempts", nothing)
-        (limit === nothing || limit == 0) && continue
-        limit = Int(limit)
-        name = cfg["test_name"]
-        res = get(by_number, name, nothing)
-        res === nothing && continue
-
-        allow_tries = get(cfg, "allow_tries", false) === true
-        max_score = Float64(res["max_score"])
-        used, best = _accumulator(prev_tests, name)
-        if get(attempted, name, false)
-            within_budget = allow_tries || used < limit
-            used += 1
-            within_budget && (best = max(best, Float64(res["score"])))
-        end
-        best = min(best, max_score)
-
-        res["score"] = best
-        shown = allow_tries ? used : min(used, limit)
-        res["name"] = "(attempt: $shown/$limit) $(res["name"])"
-        res["extra_data"] = Dict("attempts_used" => used, "best_score" => best)
-        existing = strip(get(res, "output", ""))
-        res["output"] = "Locked score: $(_fmt(best))/$(_fmt(max_score))" * (isempty(existing) ? "" : "\n" * existing)
-    end
-    results["score"] = sum(Float64(t["score"]) for t in results["tests"]; init=0.0)
-    return results
-end
+apply_attempt_limits!(results, rubric, metadata, attempted; precheck=false) =
+    finalize_results!(results, rubric, metadata, attempted; precheck=precheck)
 
 """
     locked_out_message(rubric, metadata) -> String or nothing
@@ -90,35 +30,44 @@ When every attempt-limited test is used up (or already at full score), the
 submission is not graded again; this returns the message to show instead.
 """
 function locked_out_message(rubric, metadata)
-    limited = [t for t in get(rubric, "test_suite", Any[]) if !(get(t, "attempts", 0) in (nothing, 0))]
-    isempty(limited) && return nothing
-    prev_tests = _previous_submission_tests(metadata)
-    isempty(prev_tests) && return nothing
+    metadata isa AbstractDict || return nothing
+    # Tracked: questions with an "attempts" limit, and with "late_penalties"
+    # every scored question. Finished: all attempts used, or the most credit
+    # it can still earn is earned (full credit, or with the late penalty that
+    # applies to this submission included).
+    has_limit(t) = !(get(t, "attempts", 0) in (nothing, 0))
+    late = get(rubric, "late_penalties", nothing) isa AbstractVector && !isempty(rubric["late_penalties"])
+    tracked = [t for t in get(rubric, "test_suite", Any[]) if has_limit(t) || (late && _score_of(t) > 0)]
+    isempty(tracked) && return nothing
+    isempty(previous_results(metadata)) && return nothing
+    accs = previous_accumulators(metadata)
+    penalty, _ = late_penalty(rubric, submission_time(metadata))
 
     earned = 0.0
     possible = 0.0
-    for t in limited
-        used, best = _accumulator(prev_tests, t["test_name"])
-        max_score = Float64(get(t, "score", 0))
-        done = best >= max_score || (get(t, "allow_tries", false) !== true && used >= Int(t["attempts"]))
-        done || return nothing
+    attempts_ran_out = false
+    for t in tracked
+        used, best = get(accs, t["test_name"], (0, 0.0))
+        max_score = _score_of(t)
+        maxed = best >= most_credit(max_score, penalty)
+        out_of_attempts = has_limit(t) && get(t, "allow_tries", false) !== true && used >= Int(t["attempts"])
+        (maxed || out_of_attempts) || return nothing
+        attempts_ran_out |= !maxed
         earned += best
         possible += max_score
     end
-    earned >= possible && return "All questions have been answered correctly -- no further submissions " *
-                                 "are needed. Your score has been locked in."
-    return "All attempts have been used. Your locked score is $(_fmt(earned))/$(_fmt(possible)). " *
+    earned >= possible - 1e-9 && return "✅ **All questions have been answered correctly.** No further submissions " *
+                                        "are needed. Your score has been locked in."
+    penalty > 0 && !attempts_ran_out &&
+        return late_maximum_message(_fmt(round(penalty * 100; digits=6)), earned, possible)
+    return "**All attempts have been used.** Your locked score is $(_fmt(round(earned; digits=6)))/$(_fmt(possible)). " *
            "No further submissions will be graded."
 end
 
-"""The previous submission's results, carried forward unchanged."""
+"""The previous submission's results, carried forward unchanged. `message` is Markdown."""
 function locked_out_results(metadata, message)
-    tests = Any[]
-    try
-        prev = metadata["previous_submissions"][1]["results"]
-        tests = collect(something(get(prev, "tests", nothing), Any[]))
-    catch
-    end
-    score = sum(Float64(get(t, "score", 0.0)) for t in tests; init=0.0)
-    return Dict{String,Any}("score" => score, "output" => message, "tests" => tests)
+    tests = get(previous_results(metadata), "tests", nothing)
+    tests = tests isa AbstractVector ? collect(tests) : Any[]
+    score = round(sum(Float64(something(get(t, "score", 0.0), 0.0)) for t in tests; init=0.0); digits=6)
+    return Dict{String,Any}("score" => score, "output" => message, "output_format" => "md", "tests" => tests)
 end
