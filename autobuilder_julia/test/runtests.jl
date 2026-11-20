@@ -12,6 +12,7 @@ module G
     include(joinpath(Main.GRADER, "compare.jl"))
     include(joinpath(Main.GRADER, "submission.jl"))
     include(joinpath(Main.GRADER, "attempts.jl"))   # + scoring.jl
+    include(joinpath(Main.GRADER, "forbidden.jl"))
 end
 
 status(s, r; rtol=1e-6, atol=1e-6) = G.compare_values(s, r, rtol, atol)[1]
@@ -667,6 +668,116 @@ end
                         metadata=meta("mm3", Dict("created_at" => "2026-11-22T09:00:00-08:00",
                                                   "previous_submissions" => [prev(m1), prev(m2, "2026-11-21T17:00:00+00:00")])))
     @test score(m3) ≈ 7.8 && occursin("the most credit you can receive (7.8/9)", m3["output"])
+end
+
+@testset "forbidden_functions" begin
+    tmp = mktempdir()
+    rubric = Dict(
+        "language" => "julia",
+        "test_suite" => [
+            Dict("test_name" => "root", "type" => "variable", "variable_name" => "root", "score" => 2,
+                 "rtol" => 1e-8, "atol" => 1e-8, "forbidden_functions" => ["sqrt", "Roots"]),
+            Dict("test_name" => "solve2", "type" => "function", "function_name" => "solve2",
+                 "inputs" => [2.0, 4.0], "score" => 2,
+                 "forbidden_functions" => ["\\"]),
+            Dict("test_name" => "sol", "type" => "variable", "variable_name" => "sol", "score" => 1),
+        ],
+    )
+    solution = """
+        function bisect(f, a, b)
+            m = (a + b) / 2
+            for _ in 1:80
+                m = (a + b) / 2
+                f(a) * f(m) <= 0 ? (b = m) : (a = m)
+            end
+            return m
+        end
+        root = bisect(t -> t^2 - 2, 0.0, 2.0)
+        solve2(a, b) = b / a
+        sol = [2.0 0; 0 4] \\ [2.0, 4.0]
+        """
+    rb, sol = assignment(joinpath(tmp, "a"); rubric=rubric, solution=solution)
+
+    # Used for `root` (through an alias and a helper function); `\` for `sol`
+    # only, which does not forbid it; comments and strings never count.
+    f = joinpath(tmp, "hw.jl")
+    write(f, """
+        # root = sqrt(2) would be easier
+        note = "A \\\\ b"
+        helper = sqrt
+        root_of(c) = helper(c)
+        root = root_of(2.0)
+        solve2(a, b) = b / a
+        sol = [2.0 0; 0 4] \\ [2.0, 4.0]
+        """)
+    res, out = quiet_grade(rb, sol, f)
+    by = Dict(t["number"] => t for t in res["tests"])
+    @test Float64(by["root"]["score"]) == 0
+    @test occursin("Do not use sqrt for this problem (line 3).", by["root"]["output"])
+    @test Float64(by["solve2"]["score"]) == 2
+    @test Float64(by["sol"]["score"]) == 1
+
+    # Through a `!` function changing a variable, and an included file.
+    d = joinpath(tmp, "two_files"); mkpath(d)
+    write(joinpath(d, "hw.jl"), """
+        include("mysolver.jl")
+        out = Float64[]
+        function fill_root!(o)
+            push!(o, sqrt(2.0))
+        end
+        fill_root!(out)
+        root = out[1]
+        solve2(a, b) = mysolve(a, b)
+        sol = [1.0, 1.0]
+        """)
+    write(joinpath(d, "mysolver.jl"), "mysolve(A, b) = A \\ b\n")
+    res, out = quiet_grade(rb, sol, d)
+    by = Dict(t["number"] => t for t in res["tests"])
+    @test Float64(by["root"]["score"]) == 0
+    @test occursin("Do not use sqrt for this problem (line 4).", by["root"]["output"])
+    @test Float64(by["solve2"]["score"]) == 0
+    # (Markdown output: the backslash is escaped.)
+    @test occursin("Do not use \\\\ for this problem (line 1 of mysolver.jl).", by["solve2"]["output"])
+    @test Float64(by["sol"]["score"]) == 1
+
+    # The analysis itself.
+    g = joinpath(tmp, "unit.jl")
+    write(g, """
+        using Roots
+        import LinearAlgebra as LA
+        using Roots: fzero as fz
+        x = 2.0
+        r1 = find_zero(t -> t - x, (0, 5))
+        f(x) = x^2 - 2
+        my_zero(g, a, c) = (a + c) / 2
+        r2 = my_zero(f, 0, 2)
+        r3 = LA.eigvals([2.0 0; 0 3])
+        r4 = fz(f, 1.0)
+        acc = 0.0
+        for k in 1:3
+            global acc += k
+        end
+        sq = [sqrt(v) for v in 1:3]
+        """)
+    gr = G.forbidden_graph(g)
+    F = ["find_zero", "Roots.fzero", "LinearAlgebra.eigvals", "sqrt"]
+    hits(t) = [h[1] for h in G.forbidden_uses(gr, t, F)]
+    @test hits("x") == [] && hits("f") == [] && hits("r2") == [] && hits("acc") == []
+    @test hits("r1") == ["find_zero"]
+    @test hits("r3") == ["LinearAlgebra.eigvals"]
+    @test hits("r4") == ["Roots.fzero"]
+    @test hits("sq") == ["sqrt"]
+
+    # Build: the solution may not use what its own test forbids; the list is checked.
+    r = deepcopy(rubric); r["test_suite"][3]["forbidden_functions"] = ["\\"]
+    rb2, sol2 = assignment(joinpath(tmp, "b"); rubric=r, solution=solution)
+    err = try build(rb2, sol2; output=joinpath(tmp, "b.zip"), io=devnull); nothing catch e; e end
+    @test err isa ErrorException && occursin("does not pass its own rubric", err.msg) &&
+          occursin("Do not use \\\\ for this problem", err.msg)
+    r["test_suite"][3]["forbidden_functions"] = "sqrt"
+    rb3, sol3 = assignment(joinpath(tmp, "c"); rubric=r, solution=solution)
+    err = try build(rb3, sol3; output=joinpath(tmp, "c.zip"), io=devnull); nothing catch e; e end
+    @test err isa ErrorException && occursin("must be a list of function names", err.msg)
 end
 
 end

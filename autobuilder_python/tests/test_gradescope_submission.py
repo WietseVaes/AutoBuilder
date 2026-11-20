@@ -648,3 +648,129 @@ def test_student_text_is_escaped_and_tracebacks_are_code():
     finalize(results, config, {}, {})
     assert "▸ Error:\n\n```\nTraceback (most recent call last):\n  File x\nValueError: no\n```" \
         in results["tests"][0]["output"]
+
+
+_FORBIDDEN_SOLUTION = (
+    "import numpy as np\n"
+    "def bisect(f, a, b):\n"
+    "    for _ in range(80):\n"
+    "        m = (a + b) / 2\n"
+    "        if f(a) * f(m) <= 0:\n"
+    "            b = m\n"
+    "        else:\n"
+    "            a = m\n"
+    "    return m\n"
+    "root = bisect(lambda t: t * t - 2, 0, 2)\n"
+    "def solve2(A, b):\n"
+    "    return np.linalg.inv(A) @ b\n"
+    "sol = np.linalg.solve([[2.0, 0.0], [0.0, 4.0]], [2.0, 4.0])\n"
+)
+
+
+def _forbidden_config():
+    return _rubric_config(test_suite=[
+        {"test_name": "root", "type": "variable", "variable_name": "root", "score": 2,
+         "rtol": 1e-8, "atol": 1e-8, "forbidden_functions": ["numpy.roots", "sqrt"]},
+        {"test_name": "solve2", "type": "function", "function_name": "solve2",
+         "inputs": [[[2.0, 0.0], [0.0, 4.0]], [2.0, 4.0]], "score": 2,
+         "forbidden_functions": ["linalg.solve"]},
+        {"test_name": "sol", "type": "variable", "variable_name": "sol", "score": 1},
+    ])
+
+
+def test_forbidden_functions_zero_only_the_test_that_uses_them(tmp_path):
+    """A forbidden function on the path to the tested name fails that test,
+    whatever the value; the same function elsewhere in the file (for a test
+    that does not forbid it), in comments or in strings is fine."""
+    source_dir = _build_source_dir(tmp_path, _forbidden_config(), _FORBIDDEN_SOLUTION)
+    submission = (
+        "import numpy as np\n"
+        "from math import sqrt as s\n"
+        "# root = np.roots([1, 0, -2]) would be easier\n"
+        "note = 'np.linalg.solve(A, b)'\n"
+        "helper = s\n"
+        "def root_of(c):\n"
+        "    return helper(c)\n"
+        "root = root_of(2)\n"
+        "def solve2(A, b):\n"
+        "    return np.linalg.inv(A) @ b\n"
+        "sol = np.linalg.solve([[2.0, 0.0], [0.0, 4.0]], [2.0, 4.0])\n"
+    )
+    submission_dir = _write_submission(tmp_path, {"hw.py": submission})
+    results, _ = _run_gradescope_flow(source_dir, submission_dir, tmp_path)
+    by_number = {t["number"]: t for t in results["tests"]}
+    assert by_number["root"]["score"] == 0
+    assert "Do not use sqrt for this problem (line 5)" in by_number["root"]["output"]
+    assert by_number["solve2"]["score"] == 2
+    assert by_number["sol"]["score"] == 1
+
+
+def test_forbidden_function_through_mutation_and_helper_module(tmp_path):
+    source_dir = _build_source_dir(tmp_path, _forbidden_config(), _FORBIDDEN_SOLUTION)
+    submission_dir = _write_submission(tmp_path, {
+        "hw.py": (
+            "import numpy as np\n"
+            "import mysolver\n"
+            "out = []\n"
+            "def fill(o):\n"
+            "    o.append(float(np.roots([1, 0, -2]).max()))\n"
+            "fill(out)\n"
+            "root = out[0]\n"
+            "def solve2(A, b):\n"
+            "    return mysolver.solve_it(A, b)\n"
+            "sol = np.array([1.0, 1.0])\n"
+        ),
+        "mysolver.py": "from numpy.linalg import solve\ndef solve_it(A, b):\n    return solve(A, b)\n",
+    })
+    results, _ = _run_gradescope_flow(source_dir, submission_dir, tmp_path)
+    by_number = {t["number"]: t for t in results["tests"]}
+    assert by_number["root"]["score"] == 0
+    assert "Do not use numpy.roots" in by_number["root"]["output"]
+    assert by_number["solve2"]["score"] == 0
+    assert "Do not use linalg.solve for this problem (line 3 of mysolver.py)" \
+        in by_number["solve2"]["output"].replace("\\", "")
+    assert by_number["sol"]["score"] == 1
+
+
+def test_forbidden_function_in_solution_rejected_at_build(tmp_path):
+    import pytest
+    config = _forbidden_config()
+    config["test_suite"][2]["forbidden_functions"] = ["solve"]
+    with pytest.raises(RuntimeError, match="solution itself uses a forbidden function"):
+        _build_source_dir(tmp_path, config, _FORBIDDEN_SOLUTION)
+    config["test_suite"][2]["forbidden_functions"] = "solve"
+    with pytest.raises(RuntimeError, match="must be a list"):
+        (tmp_path / "b").mkdir()
+        _build_source_dir(tmp_path / "b", config, _FORBIDDEN_SOLUTION)
+
+
+def test_forbidden_analysis_unit():
+    from autobuilder.forbidden import _Graph, forbidden_uses
+    import ast
+    src = (
+        "import scipy.optimize as so\n"
+        "from scipy.optimize import brentq as b\n"
+        "x = 2.0\n"
+        "r1 = b(lambda t: t - x, 0, 5)\n"
+        "def f(x):\n"
+        "    return x**2 - 2\n"
+        "def brentq(g, a, c):\n"
+        "    return (a + c) / 2\n"
+        "r2 = brentq(f, 0, 2)\n"
+        "alias = so.newton\n"
+        "r3 = alias(f, 1.0)\n"
+        "acc = 0.0\n"
+        "for k in range(3):\n"
+        "    acc += so.root_scalar(f, bracket=[0, 2]).root\n"
+        "both = r1 + r2\n"
+    )
+    g = _Graph()
+    g.build([(g.add_file(src, "hw.py"), "hw.py")])
+    F = ["brentq", "newton", "scipy.optimize.root_scalar"]
+    assert forbidden_uses(g, "x", F) == []
+    assert forbidden_uses(g, "f", F) == []
+    assert [h[0] for h in forbidden_uses(g, "r1", F)] == ["brentq"]
+    assert forbidden_uses(g, "r2", F) == []          # the student's own brentq
+    assert [h[0] for h in forbidden_uses(g, "r3", F)] == ["newton"]
+    assert [h[0] for h in forbidden_uses(g, "acc", F)] == ["scipy.optimize.root_scalar"]
+    assert [h[0] for h in forbidden_uses(g, "both", F)] == ["brentq"]

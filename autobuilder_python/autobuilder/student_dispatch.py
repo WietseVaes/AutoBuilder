@@ -157,8 +157,43 @@ def _fmt_seconds(t):
 def get_student_result(spec, timeout=None):
     """Run a single test spec against the student's submission. Returns
     a dict with keys: "value" (if successful), "missing" (bool),
-    "call_error" (string) or "timed_out" (bool), exactly one of which is
-    meaningful."""
+    "call_error" (string), "timed_out" (bool) or "forbidden" (message),
+    exactly one of which is meaningful.
+
+    "forbidden": the spec lists "forbidden_functions" and the code behind
+    the tested name uses one of them (see forbidden.py). Only checked when
+    the name exists (a value or an error came back)."""
+    outcome = _get_student_result(spec, timeout)
+    if spec.get("forbidden_functions") and ("value" in outcome or "call_error" in outcome):
+        message = _forbidden_message(spec)
+        if message:
+            return {"forbidden": message}
+    return outcome
+
+
+def _forbidden_message(spec):
+    marker = _load_marker()
+    path = marker.get("submission_path")
+    if ("graph", path) not in _cache:
+        from .forbidden import build_graph
+        try:
+            _cache[("graph", path)] = build_graph(path, marker.get("helpers_dir"))
+        except (OSError, SyntaxError, ValueError):
+            _cache[("graph", path)] = None
+    graph = _cache[("graph", path)]
+    if graph is None:
+        return None
+    from .forbidden import forbidden_uses, forbidden_message
+    target = spec.get("variable_name") or spec.get("function_name")
+    hits = forbidden_uses(graph, target, spec["forbidden_functions"])
+    if not hits:
+        return None
+    # Line numbers of a converted notebook mean nothing to the student.
+    notebook = str(marker.get("graded_file") or "").lower().endswith(".ipynb")
+    return forbidden_message(hits, path, show_lines=not notebook)
+
+
+def _get_student_result(spec, timeout=None):
     if timeout is None:
         timeout = _timeout()
     marker = _load_marker()

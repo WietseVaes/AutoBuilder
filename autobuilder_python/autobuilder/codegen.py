@@ -94,7 +94,7 @@ def _get_result_lines(t, name, h_not_defined):
     if ttype == "variable":
         varname = t["variable_name"]
         what = f"Variable {varname!r}"
-        spec_repr = repr({"name": name, "type": "variable", "variable_name": varname})
+        spec_fields = {"name": name, "type": "variable", "variable_name": varname}
     else:
         fname = t["function_name"]
         what = f"Function {fname!r}"
@@ -103,7 +103,9 @@ def _get_result_lines(t, name, h_not_defined):
                        "inputs": t.get("inputs", [])}
         if t.get("output_index") is not None:
             spec_fields["output_index"] = t["output_index"]
-        spec_repr = repr(spec_fields)
+    if t.get("forbidden_functions"):
+        spec_fields["forbidden_functions"] = list(t["forbidden_functions"])
+    spec_repr = repr(spec_fields)
 
     lines.append(f"        _outcome = get_student_result({spec_repr})")
     lines.append('        if _outcome.get("timed_out"):')
@@ -122,6 +124,10 @@ def _get_result_lines(t, name, h_not_defined):
         f"            self.fail(f\"{what} is not defined.\" + extra + "
         f"{_hint_suffix_expr(repr(h_not_defined))})"
     )
+    lines.append("            return")
+    lines.append('        if _outcome.get("forbidden"):')
+    lines.append(f"            _record_attempt({name!r}, True)")
+    lines.append('            self.fail(_outcome["forbidden"])')
     lines.append("            return")
     lines.append('        if "call_error" in _outcome:')
     lines.append(f"            _record_attempt({name!r}, True)")

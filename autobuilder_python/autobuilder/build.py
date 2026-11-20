@@ -36,6 +36,7 @@ Output layout (matches the gradescope-utils PyUnit convention):
     |   |-- python_adapter.py
     |   |-- _runner.py
     |   |-- notebook_convert.py
+    |   |-- forbidden.py
     |   `-- student_dispatch.py
     `-- tests/
         |-- __init__.py
@@ -64,6 +65,7 @@ VENDOR_FILES = [
     "__init__.py", "comparator.py", "inputs.py", "attempts.py",
     "attempt_recorder.py", "plot_check.py", "python_adapter.py",
     "_runner.py", "student_dispatch.py", "notebook_convert.py", "scoring.py",
+    "forbidden.py",
 ]
 
 DEFAULT_TIMEOUT = 10
@@ -200,6 +202,33 @@ def _check_rubric_options(config):
     for key in ("precheck", "combine_questions", "grade_until_crash"):
         if key in config and not isinstance(config[key], bool):
             raise RuntimeError(f'"{key}" must be true or false, got {config[key]!r}')
+    for t in config.get("test_suite", []):
+        if "forbidden_functions" in t:
+            ff = t["forbidden_functions"]
+            if not (isinstance(ff, list) and all(isinstance(x, str) and x.strip() for x in ff)):
+                raise RuntimeError(
+                    f"Test '{t.get('test_name')}': \"forbidden_functions\" must be a list of "
+                    f'function names, e.g. ["brentq", "scipy.optimize.fsolve"], got {ff!r}'
+                )
+
+
+def _check_solution_forbidden(config, solution_path):
+    """The instructor's solution must not use a function its own test forbids
+    (a typo in the list, or the wrong test, would otherwise fail every student)."""
+    from .forbidden import build_graph, forbidden_uses, forbidden_message
+    graph = None
+    for t in config.get("test_suite", []):
+        if not t.get("forbidden_functions"):
+            continue
+        if graph is None:
+            graph = build_graph(solution_path)
+        target = t.get("variable_name") or t.get("function_name")
+        hits = forbidden_uses(graph, target, t["forbidden_functions"])
+        if hits:
+            raise RuntimeError(
+                f"Test '{t.get('test_name')}': the solution itself uses a forbidden function. "
+                + forbidden_message(hits, solution_path).replace("this problem", f"{target!r}")
+            )
 
 
 def _check_language(config):
@@ -275,6 +304,7 @@ def _build(rubric_path, solution_path, output_path, inputs_file=None, timeout=No
 
     _check_language(config)
     _check_rubric_options(config)
+    _check_solution_forbidden(config, solution_path)
 
     # Resolve $-prefixed inputs from the inputs file, if provided.
     if inputs_file:

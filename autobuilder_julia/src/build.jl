@@ -14,7 +14,8 @@
 
 const GRADER_DIR = joinpath(@__DIR__, "grader")
 const GRADER_FILES = ["json.jl", "values.jl", "compare.jl", "worker.jl",
-                      "submission.jl", "attempts.jl", "scoring.jl", "run.jl", "plots.jl"]
+                      "submission.jl", "attempts.jl", "scoring.jl", "run.jl", "plots.jl",
+                      "forbidden.jl"]
 const DEFAULT_TIMEOUT = 600
 const RESERVED = Set(["run_autograder", "setup.sh", "rubric.json", "build_info.json",
                       "solution.jl", "test_inputs.jl"])
@@ -83,6 +84,12 @@ function load_rubric(rubric_path)
             haskey(t, "function_name") || error("Test \"$name\" (type function) needs a \"function_name\".")
         else
             error("Test \"$name\": unknown type \"$kind\" (use \"variable\", \"function\" or \"plot\").")
+        end
+        if haskey(t, "forbidden_functions")
+            ff = t["forbidden_functions"]
+            (ff isa AbstractVector && all(x -> x isa AbstractString && !isempty(strip(x)), ff)) ||
+                error("Test \"$name\": \"forbidden_functions\" must be a list of function names, " *
+                      "e.g. [\"find_zero\", \"Roots.fzero\"], got $(repr(ff)).")
         end
     end
     for key in ("precheck", "combine_questions", "grade_until_crash")

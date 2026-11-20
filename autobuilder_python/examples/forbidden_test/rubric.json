@@ -1,0 +1,53 @@
+{
+  "timeout": 20,
+  "requirements": ["numpy", "scipy"],
+  "combine_questions": true,
+  "test_suite": [
+    {
+      "test_name": "1a",
+      "type": "variable",
+      "variable_name": "root",
+      "description": "root of x^3 - 2x - 5 on [2, 3], found without a library root finder",
+      "score": 2,
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "forbidden_functions": ["brentq", "fsolve", "newton", "root_scalar", "bisect"],
+      "hint_tolerance": "Bisect until the interval is smaller than 1e-10."
+    },
+    {
+      "test_name": "1b",
+      "type": "function",
+      "function_name": "cube_root",
+      "inputs": [27.0],
+      "description": "cube_root(27.0), found without a library root finder",
+      "score": 2,
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "forbidden_functions": ["brentq", "fsolve", "newton", "root_scalar", "bisect"],
+      "hint_tolerance": "cube_root(c) solves x^3 - c = 0 on [0, max(1, c)]."
+    },
+    {
+      "test_name": "2a",
+      "type": "function",
+      "function_name": "solve_system",
+      "inputs": [[[4.0, 1.0], [2.0, 3.0]], [1.0, 2.0]],
+      "description": "solve_system(A, b) by Gaussian elimination",
+      "score": 2,
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "forbidden_functions": ["solve", "inv", "lstsq"],
+      "hint_wrong_size": "solve_system should return a vector with one entry per row of A."
+    },
+    {
+      "test_name": "2b",
+      "type": "variable",
+      "variable_name": "x_sol",
+      "description": "x_sol solves the 3x3 system A3 x = b3",
+      "score": 2,
+      "rtol": 1e-6,
+      "atol": 1e-6,
+      "forbidden_functions": ["solve", "inv", "lstsq"],
+      "hint_tolerance": "Use your solve_system on A3 and b3."
+    }
+  ]
+}

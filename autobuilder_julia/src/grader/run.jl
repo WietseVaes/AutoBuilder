@@ -18,6 +18,7 @@
 include(joinpath(@__DIR__, "json.jl"))
 include(joinpath(@__DIR__, "submission.jl"))
 include(joinpath(@__DIR__, "attempts.jl"))
+include(joinpath(@__DIR__, "forbidden.jl"))
 
 const SOURCE_DIR = dirname(@__DIR__)
 const SUBMISSION_DIR = get(ENV, "AUTOBUILDER_SUBMISSION_DIR", "/autograder/submission")
@@ -156,6 +157,23 @@ function test_outcome(t, ev, timeout, timed_out, image_md)
     return (false, true, ev["message"] * hint_suffix(h, img))
 end
 
+# The student's file is parsed once, for all tests with "forbidden_functions".
+const _FORBIDDEN_GRAPH = Ref{Any}(nothing)
+
+function forbidden_check(t, student_path, graded_file)
+    if _FORBIDDEN_GRAPH[] === nothing
+        _FORBIDDEN_GRAPH[] = try forbidden_graph(student_path) catch; false end
+    end
+    g = _FORBIDDEN_GRAPH[]
+    g === false && return nothing
+    _, name, _ = test_target(t)
+    hits = forbidden_uses(g, name, t["forbidden_functions"])
+    isempty(hits) && return nothing
+    # Line numbers of a converted notebook mean nothing to the student.
+    notebook = endswith(lowercase(string(graded_file)), ".ipynb")
+    return forbidden_message(hits, student_path; show_lines=!notebook)
+end
+
 function grade(rubric, build_info, metadata)
     tests_cfg = get(rubric, "test_suite", Any[])
     timeout = get(build_info, "timeout", 600)
@@ -163,7 +181,7 @@ function grade(rubric, build_info, metadata)
     hint_images = get(build_info, "hint_images", Dict{String,Any}())
     notes = String[]
 
-    student_path, _, note = find_submission(SUBMISSION_DIR, required_names(rubric))
+    student_path, graded_file, note = find_submission(SUBMISSION_DIR, required_names(rubric))
     note === nothing || push!(notes, note)
 
     # rubric.json "grade_until_crash" (default false): when the student's
@@ -215,6 +233,13 @@ function grade(rubric, build_info, metadata)
             crash_outcome(t, crash)
         else
             test_outcome(t, get(by_test, name, nothing), timeout, timed_out, image_md)
+        end
+        # "forbidden_functions": only checked when the name exists (a value or an error came back).
+        ev = get(by_test, name, nothing)
+        if !isempty(get(t, "forbidden_functions", Any[])) && crash === nothing && ev !== nothing &&
+           get(ev, "kind", "") in ("compared", "call_error")
+            message = forbidden_check(t, student_path, graded_file)
+            message === nothing || ((passed, tried, output) = (false, true, message))
         end
         attempted[name] = tried
         max_score = get(t, "score", 0)

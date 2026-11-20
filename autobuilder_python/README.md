@@ -169,6 +169,7 @@ This grades one submission with the same generated tests Gradescope runs, so the
 | `attempts` | | Max number of attempted submissions for this question (see below) |
 | `allow_tries` | | `true` = no attempt cap, just track running best (default `false`) |
 | `question` | | Question this test belongs to with `combine_questions` (default: `test_name` without trailing letters) |
+| `forbidden_functions` | | Functions the code for this test may not use, e.g. `["brentq", "scipy.optimize.fsolve"]`: using one scores 0 (see [Forbidden functions](#forbidden-functions)) |
 
 ### Hint fields
 
@@ -357,6 +358,27 @@ Once all attempt-limited questions in a rubric are exhausted (or full credit is 
 
 Attempt tracking requires Gradescope's "Allow resubmission" setting to be enabled on the assignment.
 
+### Forbidden functions
+
+```json
+"forbidden_functions": ["brentq", "scipy.optimize.fsolve", "numpy.roots"]
+```
+
+The test scores 0 when the code that produces its variable or function uses one of these functions, whatever the value. The student sees, for example, `Do not use brentq for this problem (line 12).` and the attempt counts. No hint is shown.
+
+The student's file is read, not run, so comments and strings never count. Only the code the tested name depends on is checked: the statements that assign or change it, the functions and classes it calls, the variables those use, and so on, also inside modules the student submitted next to their file. Using `brentq` for a different problem in the same file is fine.
+
+How names match:
+
+- Imports are followed: `so.brentq(...)` after `import scipy.optimize as so`, `b(...)` after `from scipy.optimize import brentq as b`, and `f = brentq; f(...)` are all uses of `scipy.optimize.brentq`.
+- An entry matches when its parts appear in that full name: `"brentq"` and `"optimize.brentq"` match `scipy.optimize.brentq`; `"scipy.optimize"` forbids the whole module; `"solve"` matches both `numpy.linalg.solve` and `scipy.linalg.solve` (use `"numpy.linalg.solve"` for only one). Write module names in full (`numpy`, not `np`).
+- Builtins work too: `"sorted"`, `"max"`.
+- A function the student wrote themselves with the same name (`def brentq(...)`) is theirs and is not flagged.
+
+A variable counts as changed by a statement that assigns it (`x = ...`, `x[i] = ...`, `x += ...`, `for x in ...`), calls a method on it (`x.append(...)`), or passes it to a function the student wrote (`fill(x)`); statements inside `if`/`for`/`while` also depend on their condition or loop. Not detected: tricks such as `getattr`/`eval`, and library functions that change an argument in place (`np.copyto(x, brentq(...))`).
+
+`build` refuses a rubric whose own solution uses a function its test forbids.
+
 ### How results look on Gradescope
 
 All output is sent to Gradescope as Markdown (`"output_format": "md"`): bold title lines, one bullet per part with its details on ▸ lines, ✅ / ❌ marks, and code blocks for tracebacks. Text that comes from the student's code (error messages, values) is escaped, so it is shown literally. `grade` prints the same output in the terminal without the Markdown marks.
@@ -443,6 +465,7 @@ What students see when their code goes wrong:
 - `examples/total_test/` (**tests the most**): strings, lists, numpy arrays, a function (RK4 step), and a maximisation problem, with submissions showing a progression from 0/20 to 20/20 (four `.py`, one `.ipynb`), plus `submission_06_crashes_halfway.py` (16/20: graded up to the crash, since this rubric sets `"grade_until_crash": true`) and `submission_07_infinite_loop.py` (10/20 after the 10 s timeout, also thanks to `grade_until_crash`). `solution_notebook.ipynb` is the same solution as a notebook. Every test entry's `rubric.json` has all five hint types filled in, as a reference.
 - `examples/dataframe_test/`: a `pandas.DataFrame` built from scratch, a derived column, and a groupby summary -- three submissions showing a column-name mismatch and a value mismatch cascading into a dependent test.
 - `examples/plot_test/`: a numpy array plus a matplotlib plot of it, with separate `hint_wrong_size`/`hint_tolerance` hints on both the array test and the plot test. The plot test's `hint_image` (a rendered reference plot, `expected_damped_wave.png`) is attached only to its tolerance-failure path -- five submissions demonstrate the image appearing only when the *values* are wrong (not the size), and every plot mismatch being listed individually rather than stopping at the first.
+- `examples/forbidden_test/`: `forbidden_functions` with `combine_questions` -- root finding without scipy's root finders, and a linear solve without `solve`/`inv`/`lstsq`. Four submissions: correct (8/8, library calls only in comments, a string, and unused checks), direct library calls (0/8), calls hidden behind a renamed module, a helper function and a list filled by another function (4/8), and the student's own `brentq` (fine) next to a renamed `newton` and `scipy.linalg.solve` (4/8).
 - `examples/python/`: strings, booleans, arrays, functions with tuple outputs, and two plot tests (a line plot and a bar chart), with five submissions.
 - `examples/function_unit_test/`, `expected_test/`, `callable_test/`, `extra_files_test/`, `variable_test/`: smaller examples -- a function tested with several inputs, fixed `expected` values, a function passed as an input, a data file, and a long list of variables.
 

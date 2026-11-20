@@ -273,6 +273,7 @@ Wrote autograder.zip
 | `attempts` | | Max number of attempted submissions for this question (see below) |
 | `allow_tries` | | `true` = no attempt cap, just track running best (default `false`) |
 | `question` | | Question this test belongs to with `combine_questions` (default: `test_name` without trailing letters) |
+| `forbidden_functions` | | Functions the code for this test may not use, e.g. `["find_zero", "Roots.fzero"]`: using one scores 0 (see [Forbidden functions](#forbidden-functions)) |
 
 ### Hint fields
 
@@ -487,6 +488,27 @@ Pass the file with `--inputs test_inputs.jl`. It is shipped in the zip and run o
 Once all attempt-limited questions in a rubric are exhausted (or full credit is earned on all of them), further submissions are blocked with a message and the previous results are carried forward unchanged.
 
 Attempt tracking requires Gradescope's "Allow resubmission" setting to be enabled on the assignment.
+
+### Forbidden functions
+
+```json
+"forbidden_functions": ["find_zero", "Roots.fzero", "LinearAlgebra.eigen"]
+```
+
+The test scores 0 when the code that produces its variable or function uses one of these functions, whatever the value. The student sees, for example, `Do not use find_zero for this problem (line 12).` and the attempt counts. No hint is shown.
+
+The student's file is read, not run, so comments and strings never count. Only the code the tested name depends on is checked: the statements that assign or change it, the functions and structs it calls, the variables those use, and so on, also in files the student `include`s. Using `find_zero` for a different problem in the same file is fine.
+
+How names match:
+
+- Imports are followed: after `using Roots`, a bare `find_zero(...)` is `Roots.find_zero`; `R.find_zero(...)` after `import Roots as R`, `fz(...)` after `using Roots: find_zero as fz`, and `g = find_zero; g(...)` are all uses of `Roots.find_zero`.
+- An entry matches when its parts appear in that full name: `"find_zero"` and `"Roots.find_zero"` both match; `"Roots"` forbids the whole package. Write package names in full, not an alias.
+- Base functions and operators work too: `"sqrt"`, `"sort"`, `"\\"` (the backslash solve `A \ b`; JSON writes one backslash as `\\`).
+- A function the student wrote themselves with the same name (`function fzero(...)`) is theirs and is not flagged.
+
+A variable counts as changed by a statement that assigns it (`x = ...`, `x[i] = ...`, `x += ...`, `x .= ...`, `for x in ...`), calls a `!` function on it (`push!(x, ...)`), or passes it to a function the student wrote (`fill_roots(x)`); statements inside `if`/`for`/`while` also depend on their condition or loop. Not detected: tricks such as `eval`/`getfield`, and package functions without a `!` that still change their arguments.
+
+`build` checks the solution against its own rubric, so a solution that uses a function its test forbids is reported there.
 
 ### How results look on Gradescope
 
